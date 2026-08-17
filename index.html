@@ -491,13 +491,13 @@
 
       <section class="panel">
         <div class="panel-head"><h2>Local backup</h2></div>
-        <p class="field-note">Your data also lives in this device's browser only. Export a backup regularly, especially before clearing Safari data.</p>
+        <p class="field-note">Your data lives in this device's browser only. On iPad/iPhone, Export opens the share sheet — choose "Save to Files" and pick your iCloud Drive folder to push a copy there; Import can pick a file back out of Files, including iCloud Drive. On a Mac/PC, these still work as plain downloads/uploads. Do this regularly, especially before clearing Safari data.</p>
         <div class="btn-row">
           <button class="btn btn-secondary" id="btn-export">Export backup (JSON)</button>
           <button class="btn btn-secondary" id="btn-export-csv">Export sales (CSV)</button>
           <button class="btn btn-secondary" id="btn-export-expenses-csv">Export expenses (CSV)</button>
           <label class="btn btn-secondary" for="import-file">Import backup
-            <input type="file" id="import-file" accept="application/json" hidden />
+            <input type="file" id="import-file" accept=".json,application/json" hidden />
           </label>
         </div>
       </section>

@@ -1410,6 +1410,20 @@
     URL.revokeObjectURL(url);
   }
 
+  async function exportFile(filename, content, type) {
+    try {
+      const file = new File([content], filename, { type });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file] });
+        return;
+      }
+    } catch (e) {
+      if (e && e.name === "AbortError") return; // user cancelled the share sheet
+      // any other error: fall through to a plain download
+    }
+    downloadBlob(filename, content, type);
+  }
+
   /* --- bulk import: books --- */
   document.getElementById("btn-template-books").addEventListener("click", () => {
     const csv = [
@@ -1540,25 +1554,25 @@
     e.target.value = "";
   });
 
-  document.getElementById("btn-export").addEventListener("click", () => {
-    downloadBlob(`kasembannakij-backup-${todayISO()}.json`, JSON.stringify(currentSnapshot(), null, 2), "application/json");
-    showToast("Backup downloaded");
+  document.getElementById("btn-export").addEventListener("click", async () => {
+    await exportFile(`kasembannakij-backup-${todayISO()}.json`, JSON.stringify(currentSnapshot(), null, 2), "application/json");
+    showToast("Backup ready");
   });
 
-  document.getElementById("btn-export-csv").addEventListener("click", () => {
+  document.getElementById("btn-export-csv").addEventListener("click", async () => {
     const header = ["Order ID", "Date", "Customer", "Title", "Type", "Qty", "Unit Price", "Revenue", "Commission %", "Fee", "Cost", "Margin", "Location", "Note"];
     const rows = sales.map((s) => [s.orderId, s.date, s.customer || "", s.bookTitle, s.saleType || "retail", s.qty, s.unitPrice, saleRevenue(s), s.commissionPct || 0, saleCommission(s), saleCost(s), saleMargin(s), s.location, s.note || ""]);
     const csv = [header, ...rows].map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\r\n");
-    downloadBlob(`kasembannakij-sales-${todayISO()}.csv`, csv, "text/csv");
-    showToast("Sales CSV downloaded");
+    await exportFile(`kasembannakij-sales-${todayISO()}.csv`, csv, "text/csv");
+    showToast("Sales CSV ready");
   });
 
-  document.getElementById("btn-export-expenses-csv").addEventListener("click", () => {
+  document.getElementById("btn-export-expenses-csv").addEventListener("click", async () => {
     const header = ["Date", "Category", "Amount", "Note"];
     const rows = expenses.map((x) => [x.date, x.category, x.amount, x.note || ""]);
     const csv = [header, ...rows].map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\r\n");
-    downloadBlob(`kasembannakij-expenses-${todayISO()}.csv`, csv, "text/csv");
-    showToast("Expenses CSV downloaded");
+    await exportFile(`kasembannakij-expenses-${todayISO()}.csv`, csv, "text/csv");
+    showToast("Expenses CSV ready");
   });
 
   document.getElementById("import-file").addEventListener("change", (e) => {
@@ -1783,7 +1797,7 @@
     const disconnectBtn = document.getElementById("btn-folder-disconnect");
 
     if (!FS_SUPPORTED) {
-      note.textContent = "This browser can't connect a folder (only Chrome or Edge on a Mac/PC support it). Pick a folder inside iCloud Drive from one of those to sync automatically — on this browser, use Local backup below instead.";
+      note.textContent = "This browser can't connect a folder — no browser on iPad or iPhone can (Chrome and Edge on iOS are Safari underneath, same limit). Pick a folder inside iCloud Drive from Chrome or Edge on a Mac/PC to sync automatically there. On this device, use Local backup below: Export opens the share sheet so you can save straight into that same iCloud Drive folder, and Import can pick a file back out of it.";
       connectBtn.hidden = true; reconnectBtn.hidden = true; disconnectBtn.hidden = true;
       return;
     }
