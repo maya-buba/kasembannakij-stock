@@ -32,6 +32,14 @@
     { id: uid(), name: "Consignment", commissionPct: 0 },
   ];
 
+  const FOLDER_FILENAME = "kasembannakij-data.json";
+  const FS_SUPPORTED = typeof window.showDirectoryPicker === "function";
+  let folderHandle = null;
+  let folderConnected = false;
+  let folderNeedsReconnect = false;
+  let folderLastSyncAt = 0;
+  let folderSyncing = false;
+
   let books = load(LS_BOOKS, []);
   let sales = load(LS_SALES, []);
   const locationsIsFresh = localStorage.getItem(LS_LOCATIONS) === null;
@@ -433,22 +441,94 @@
      INVENTORY
   ============================================================ */
   let inventoryQuery = "";
+  let inventorySortKey = "title";
+  let inventorySortDir = "asc";
+  const INVENTORY_TEXT_COLS = new Set(["title", "author"]);
+
   document.getElementById("inventory-search").addEventListener("input", (e) => {
     inventoryQuery = e.target.value.trim().toLowerCase();
+    renderInventory();
+  });
+  document.getElementById("inventory-filter-author").addEventListener("change", renderInventory);
+  document.getElementById("inventory-filter-stock").addEventListener("change", renderInventory);
+  document.getElementById("btn-inventory-clear-filters").addEventListener("click", () => {
+    inventoryQuery = "";
+    document.getElementById("inventory-search").value = "";
+    document.getElementById("inventory-filter-author").value = "";
+    document.getElementById("inventory-filter-stock").value = "";
+    renderInventory();
+  });
+  document.querySelector("#inventory-table thead").addEventListener("click", (e) => {
+    const th = e.target.closest("th[data-sort]");
+    if (!th) return;
+    const key = th.dataset.sort;
+    if (inventorySortKey === key) {
+      inventorySortDir = inventorySortDir === "asc" ? "desc" : "asc";
+    } else {
+      inventorySortKey = key;
+      inventorySortDir = INVENTORY_TEXT_COLS.has(key) ? "asc" : "desc";
+    }
     renderInventory();
   });
 
   function renderInventory() {
     const tbody = document.getElementById("inventory-tbody");
-    const rows = activeBooks()
-      .filter((b) => !inventoryQuery || b.title.toLowerCase().includes(inventoryQuery) || b.author.toLowerCase().includes(inventoryQuery))
-      .sort((a, b) => a.title.localeCompare(b.title));
+
+    const authorSelect = document.getElementById("inventory-filter-author");
+    const authors = [...new Set(activeBooks().map((b) => b.author).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    if (authorSelect.dataset.optionsFor !== authors.join("|")) {
+      authorSelect.innerHTML = `<option value="">All authors</option>` +
+        authors.map((a) => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`).join("");
+      authorSelect.dataset.optionsFor = authors.join("|");
+    }
+
+    const authorFilter = document.getElementById("inventory-filter-author").value;
+    const stockFilter = document.getElementById("inventory-filter-stock").value;
 
     document.getElementById("inventory-empty").hidden = books.length !== 0;
 
-    tbody.innerHTML = rows.map((b) => {
-      const v = velocityFor(b.id, 30);
-      const marginUnit = b.price - b.cost;
+    let rows = activeBooks()
+      .filter((b) => !inventoryQuery || b.title.toLowerCase().includes(inventoryQuery) || b.author.toLowerCase().includes(inventoryQuery))
+      .filter((b) => !authorFilter || b.author === authorFilter)
+      .filter((b) => {
+        if (!stockFilter) return true;
+        if (stockFilter === "out") return b.stock <= 0;
+        if (stockFilter === "low") return b.stock > 0 && b.stock <= settings.lowStockThreshold;
+        return b.stock > settings.lowStockThreshold;
+      })
+      .map((b) => ({ b, velocity: velocityFor(b.id, 30), marginUnit: b.price - b.cost }));
+
+    rows.sort((r1, r2) => {
+      let av, bv;
+      switch (inventorySortKey) {
+        case "title": av = r1.b.title.toLowerCase(); bv = r2.b.title.toLowerCase(); break;
+        case "author": av = r1.b.author.toLowerCase(); bv = r2.b.author.toLowerCase(); break;
+        case "price": av = r1.b.price; bv = r2.b.price; break;
+        case "wholesalePrice": av = r1.b.wholesalePrice || 0; bv = r2.b.wholesalePrice || 0; break;
+        case "cost": av = r1.b.cost; bv = r2.b.cost; break;
+        case "stock": av = r1.b.stock; bv = r2.b.stock; break;
+        case "marginUnit": av = r1.marginUnit; bv = r2.marginUnit; break;
+        case "velocity": av = r1.velocity; bv = r2.velocity; break;
+        default: av = r1.b.title; bv = r2.b.title;
+      }
+      const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+      return inventorySortDir === "asc" ? cmp : -cmp;
+    });
+
+    document.querySelectorAll("#inventory-table th[data-sort]").forEach((th) => {
+      const active = th.dataset.sort === inventorySortKey;
+      th.classList.toggle("is-sorted", active);
+      th.innerHTML = th.textContent.replace(/\s*[▲▼]?\s*$/, "") +
+        (active ? `<span class="sort-arrow">${inventorySortDir === "asc" ? "▲" : "▼"}</span>` : "");
+    });
+
+    const totalStock = rows.reduce((sum, r) => sum + Math.max(0, r.b.stock), 0);
+    const totalSunk = rows.reduce((sum, r) => sum + Math.max(0, r.b.stock) * r.b.cost, 0);
+    document.getElementById("inventory-log-summary").innerHTML = books.length
+      ? `<span><strong>${rows.length}</strong> book${rows.length === 1 ? "" : "s"}</span><span><strong>${totalStock}</strong> units in stock</span><span><strong>${fmtMoney(totalSunk)}</strong> sunk cost</span>`
+      : "";
+
+    tbody.innerHTML = rows.map(({ b, velocity: v, marginUnit }) => {
       const stockClass = b.stock <= 0 ? "out" : b.stock <= settings.lowStockThreshold ? "low" : "";
       const velocityText = v > 0 ? `${fmtNum(v, 2)}/day · ${Math.round(b.stock / v)}d left` : "no recent sales";
       return `<tr data-id="${b.id}">
@@ -1251,15 +1331,6 @@
      (point it at a folder inside iCloud Drive / Dropbox / etc. —
      the OS syncs the folder, this code only ever touches a local file)
   ============================================================ */
-  const FOLDER_FILENAME = "kasembannakij-data.json";
-  const FS_SUPPORTED = typeof window.showDirectoryPicker === "function";
-
-  let folderHandle = null;
-  let folderConnected = false;
-  let folderNeedsReconnect = false;
-  let folderLastSyncAt = 0;
-  let folderSyncing = false;
-
   function idbOpen() {
     return new Promise((resolve, reject) => {
       const req = indexedDB.open("kbnk-fs", 1);

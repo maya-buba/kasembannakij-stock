@@ -125,25 +125,41 @@
       <div class="view-head">
         <h1>Inventory</h1>
         <div class="view-actions">
-          <input type="search" id="inventory-search" class="search-input" placeholder="Search title or author…" />
           <button class="btn btn-primary" id="btn-add-book">
             <svg viewBox="0 0 24 24" width="17" height="17"><line x1="12" y1="5" x2="12" y2="19" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/><line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/></svg>
             Add book
           </button>
         </div>
       </div>
+
+      <div class="log-filters">
+        <input type="search" id="inventory-search" class="search-input" placeholder="Search title or author…" />
+        <select id="inventory-filter-author" class="filter-select">
+          <option value="">All authors</option>
+        </select>
+        <select id="inventory-filter-stock" class="filter-select">
+          <option value="">All stock levels</option>
+          <option value="in">In stock</option>
+          <option value="low">Low stock</option>
+          <option value="out">Out of stock</option>
+        </select>
+        <button type="button" class="btn btn-ghost btn-sm" id="btn-inventory-clear-filters">Clear filters</button>
+      </div>
+
+      <div class="log-summary" id="inventory-log-summary"></div>
+
       <div class="table-wrap">
         <table class="data-table" id="inventory-table">
           <thead>
             <tr>
-              <th>Title</th>
-              <th>Author</th>
-              <th class="num">Price</th>
-              <th class="num">Wholesale</th>
-              <th class="num">Cost</th>
-              <th class="num">Stock</th>
-              <th class="num">Margin/unit</th>
-              <th>Sell rate</th>
+              <th data-sort="title">Title</th>
+              <th data-sort="author">Author</th>
+              <th class="num" data-sort="price">Price</th>
+              <th class="num" data-sort="wholesalePrice">Wholesale</th>
+              <th class="num" data-sort="cost">Cost</th>
+              <th class="num" data-sort="stock">Stock</th>
+              <th class="num" data-sort="marginUnit">Margin/unit</th>
+              <th data-sort="velocity">Sell rate</th>
               <th></th>
             </tr>
           </thead>
