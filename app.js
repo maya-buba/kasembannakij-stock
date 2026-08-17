@@ -1621,13 +1621,21 @@
     });
   }
 
+  let lastCloudError = "";
+
   async function cloudPull() {
     try {
       const res = await cloudFetch("/data", { method: "GET" });
-      if (!res.ok) throw new Error("pull failed: " + res.status);
+      if (!res.ok) {
+        let detail = "";
+        try { detail = (await res.json()).error || ""; } catch (e) {}
+        lastCloudError = res.status === 401 ? "wrong passphrase (401 unauthorized)" : `server error (${res.status}${detail ? " " + detail : ""})`;
+        return null;
+      }
       return await res.json();
     } catch (e) {
       console.error("cloud pull failed", e);
+      lastCloudError = "network error — check the URL is correct and starts with https://";
       return null;
     }
   }
@@ -1728,7 +1736,7 @@
     connectBtn.hidden = true; syncNowBtn.hidden = false; disconnectBtn.hidden = false;
     const last = `last synced ${relativeTime(cloud.lastSyncAt)}`;
     if (cloudStatus === "syncing") note.textContent = "Syncing…";
-    else if (cloudStatus === "error") note.textContent = `Sync failed — check your connection and Worker URL. (${last})`;
+    else if (cloudStatus === "error") note.textContent = `Sync failed — ${lastCloudError || "check the URL and passphrase"}. (${last})`;
     else note.textContent = `Connected — ${last}.`;
   }
 
@@ -1777,7 +1785,7 @@
     if (!serverData) {
       cloudStatus = "error";
       renderCloudStatus();
-      showToast("Couldn't reach that Worker — check the URL and passphrase");
+      showToast(`Couldn't connect — ${lastCloudError || "check the URL and passphrase"}`);
       return;
     }
 
@@ -1800,19 +1808,29 @@
     showToast("Connected to cloud sync");
   }
 
-  document.getElementById("btn-cloud-save").addEventListener("click", () => {
+  function saveCloudFieldsToConfig() {
     const url = document.getElementById("cloud-worker-url").value.trim();
     const token = document.getElementById("cloud-token").value.trim();
-    if (!url || !token) { showToast("Enter both the Worker URL and passphrase"); return; }
+    if (!url || !token) { showToast("Enter both the Worker URL and passphrase"); return false; }
+    if (!/^https?:\/\//i.test(url)) { showToast('Worker URL needs "https://" at the start'); return false; }
+    const changed = url !== cloud.workerUrl || token !== cloud.token;
     cloud.workerUrl = url;
     cloud.token = token;
-    cloud.connected = false;
+    if (changed) cloud.connected = false;
     persistCloudConfig();
+    return true;
+  }
+
+  document.getElementById("btn-cloud-save").addEventListener("click", () => {
+    if (!saveCloudFieldsToConfig()) return;
     renderCloudStatus();
     showToast("Saved — tap Connect to join");
   });
 
-  document.getElementById("btn-cloud-connect").addEventListener("click", connectCloud);
+  document.getElementById("btn-cloud-connect").addEventListener("click", () => {
+    if (!saveCloudFieldsToConfig()) return;
+    connectCloud();
+  });
   document.getElementById("btn-cloud-sync-now").addEventListener("click", cloudSyncNow);
   document.getElementById("btn-cloud-disconnect").addEventListener("click", () => {
     if (!confirm("Disconnect cloud sync on this device? Local data stays here; other devices keep syncing with each other.")) return;
