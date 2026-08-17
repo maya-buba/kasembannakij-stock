@@ -41,6 +41,10 @@
         <svg viewBox="0 0 24 24" width="19" height="19"><path d="M4.5 3.8h15v16.4l-2.6-1.7-2.5 1.7-2.4-1.7-2.5 1.7-2.5-1.7-2.5 1.7z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><line x1="7.3" y1="8" x2="16.7" y2="8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><line x1="7.3" y1="11.4" x2="16.7" y2="11.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><line x1="7.3" y1="14.8" x2="13.5" y2="14.8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
         <span>Sales Log</span>
       </button>
+      <button class="tab" data-view="expenses" role="tab" aria-selected="false">
+        <svg viewBox="0 0 24 24" width="19" height="19"><rect x="3.5" y="6" width="17" height="13" rx="1.8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 9.5h17" stroke="currentColor" stroke-width="1.6"/><path d="M7 6V4.8a1.3 1.3 0 0 1 1.3-1.3h7.4A1.3 1.3 0 0 1 17 4.8V6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><line x1="7" y1="14" x2="12.5" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <span>Expenses</span>
+      </button>
       <button class="tab" data-view="settings" role="tab" aria-selected="false">
         <svg viewBox="0 0 24 24" width="19" height="19"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 3.8v2.3M12 17.9v2.3M20.2 12h-2.3M6.1 12H3.8M17.5 6.5l-1.6 1.6M8.1 15.9l-1.6 1.6M17.5 17.5l-1.6-1.6M8.1 8.1 6.5 6.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
         <span>Settings</span>
@@ -93,6 +97,14 @@
           <div id="mix-chart" class="chart-wrap"></div>
         </section>
       </div>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Where money's going</h2>
+          <span class="panel-hint">expenses by category, same period</span>
+        </div>
+        <div id="expense-chart" class="chart-wrap"></div>
+      </section>
 
       <div class="panel-grid">
         <section class="panel">
@@ -315,6 +327,70 @@
       <p class="empty-state" id="sales-empty" hidden>No sales recorded yet.</p>
     </section>
 
+    <!-- EXPENSES -->
+    <section class="view" id="view-expenses" data-view="expenses">
+      <div class="view-head">
+        <h1>Expenses</h1>
+      </div>
+
+      <section class="panel">
+        <div class="panel-head"><h2>Add an expense</h2></div>
+        <form class="sell-form" id="expense-form" autocomplete="off">
+          <div class="field">
+            <label for="expense-date">Date</label>
+            <input type="date" id="expense-date" required />
+          </div>
+          <div class="field">
+            <label for="expense-category">Category</label>
+            <input list="expense-category-options" id="expense-category" placeholder="Rent, Utilities…" required />
+            <datalist id="expense-category-options"></datalist>
+          </div>
+          <div class="field">
+            <label for="expense-amount">Amount (฿)</label>
+            <input type="number" id="expense-amount" min="0" step="1" required />
+          </div>
+          <div class="field field-wide">
+            <label for="expense-note">Note <span class="opt">(optional)</span></label>
+            <input type="text" id="expense-note" placeholder="e.g. August rent, box of mailers" />
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary btn-lg">Add expense</button>
+          </div>
+        </form>
+      </section>
+
+      <div class="log-filters">
+        <input type="search" id="expense-search" class="search-input" placeholder="Search category or note…" />
+        <select id="expense-filter-category" class="filter-select">
+          <option value="">All categories</option>
+        </select>
+        <div class="filter-date-group">
+          <input type="date" id="expense-filter-from" aria-label="From date" />
+          <span>–</span>
+          <input type="date" id="expense-filter-to" aria-label="To date" />
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" id="btn-expense-clear-filters">Clear filters</button>
+      </div>
+
+      <div class="log-summary" id="expense-log-summary"></div>
+
+      <div class="table-wrap">
+        <table class="data-table" id="expense-table">
+          <thead>
+            <tr>
+              <th data-sort="date">Date</th>
+              <th data-sort="category">Category</th>
+              <th class="num" data-sort="amount">Amount</th>
+              <th>Note</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="expense-tbody"></tbody>
+        </table>
+      </div>
+      <p class="empty-state" id="expense-empty" hidden>No expenses recorded yet.</p>
+    </section>
+
     <!-- SETTINGS -->
     <section class="view" id="view-settings" data-view="settings">
       <div class="view-head">
@@ -338,6 +414,15 @@
           <input type="text" id="new-location" placeholder="Platform name, e.g. Shopee" />
           <input type="number" id="new-location-commission" placeholder="Commission %" min="0" max="100" step="0.1" style="max-width:9rem" />
           <button type="submit" class="btn btn-secondary">Add platform</button>
+        </form>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>Expense categories</h2></div>
+        <ul id="expense-category-list" class="chip-list"></ul>
+        <form id="expense-category-form" class="inline-form" style="margin-top:14px">
+          <input type="text" id="new-expense-category" placeholder="Category name, e.g. Rent" />
+          <button type="submit" class="btn btn-secondary">Add category</button>
         </form>
       </section>
 
@@ -398,6 +483,7 @@
         <div class="btn-row">
           <button class="btn btn-secondary" id="btn-export">Export backup (JSON)</button>
           <button class="btn btn-secondary" id="btn-export-csv">Export sales (CSV)</button>
+          <button class="btn btn-secondary" id="btn-export-expenses-csv">Export expenses (CSV)</button>
           <label class="btn btn-secondary" for="import-file">Import backup
             <input type="file" id="import-file" accept="application/json" hidden />
           </label>
@@ -541,6 +627,44 @@
         </div>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- Expense edit modal -->
+<div class="modal-backdrop" id="expense-modal-backdrop" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="expense-modal-title">
+    <div class="modal-head">
+      <h2 id="expense-modal-title">Edit expense</h2>
+      <button class="icon-btn" id="expense-modal-close" aria-label="Close">
+        <svg viewBox="0 0 24 24" width="20" height="20"><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <form id="expense-edit-form" class="modal-form">
+      <input type="hidden" id="expense-edit-id" />
+      <div class="field">
+        <label for="expense-edit-date">Date</label>
+        <input type="date" id="expense-edit-date" required />
+      </div>
+      <div class="field">
+        <label for="expense-edit-category">Category</label>
+        <input list="expense-category-options" id="expense-edit-category" required />
+      </div>
+      <div class="field">
+        <label for="expense-edit-amount">Amount (฿)</label>
+        <input type="number" id="expense-edit-amount" min="0" step="1" required />
+      </div>
+      <div class="field field-wide">
+        <label for="expense-edit-note">Note</label>
+        <input type="text" id="expense-edit-note" />
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-danger-ghost" id="expense-delete-btn">Delete expense</button>
+        <div class="modal-actions-right">
+          <button type="button" class="btn btn-ghost" id="expense-modal-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save changes</button>
+        </div>
+      </div>
+    </form>
   </div>
 </div>
 

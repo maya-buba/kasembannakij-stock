@@ -6,6 +6,8 @@
   const LS_SALES = "kbnk.sales.v1";
   const LS_LOCATIONS = "kbnk.locations.v1";
   const LS_SETTINGS = "kbnk.settings.v1";
+  const LS_EXPENSES = "kbnk.expenses.v1";
+  const LS_EXPENSE_CATEGORIES = "kbnk.expenseCategories.v1";
 
   const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
   const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -31,6 +33,7 @@
     { id: uid(), name: "Lazada", commissionPct: 6 },
     { id: uid(), name: "Consignment", commissionPct: 0 },
   ];
+  const DEFAULT_EXPENSE_CATEGORIES = ["Rent", "Utilities", "Staff wages", "Packaging & shipping", "Marketing", "Supplies", "Other"];
 
   const FOLDER_FILENAME = "kasembannakij-data.json";
   const FS_SUPPORTED = typeof window.showDirectoryPicker === "function";
@@ -42,9 +45,13 @@
 
   let books = load(LS_BOOKS, []);
   let sales = load(LS_SALES, []);
+  let expenses = load(LS_EXPENSES, []);
   const locationsIsFresh = localStorage.getItem(LS_LOCATIONS) === null;
   let locations = load(LS_LOCATIONS, DEFAULT_LOCATIONS);
   if (locationsIsFresh) save(LS_LOCATIONS, locations);
+  const expenseCategoriesIsFresh = localStorage.getItem(LS_EXPENSE_CATEGORIES) === null;
+  let expenseCategories = load(LS_EXPENSE_CATEGORIES, DEFAULT_EXPENSE_CATEGORIES);
+  if (expenseCategoriesIsFresh) save(LS_EXPENSE_CATEGORIES, expenseCategories);
   let settings = load(LS_SETTINGS, { lowStockThreshold: 3 });
 
   // migrate old plain-string location lists to {id, name, commissionPct} objects
@@ -66,6 +73,8 @@
   function persistSales() { save(LS_SALES, sales); syncToFolder(); }
   function persistLocations() { save(LS_LOCATIONS, locations); syncToFolder(); }
   function persistSettings() { save(LS_SETTINGS, settings); syncToFolder(); }
+  function persistExpenses() { save(LS_EXPENSES, expenses); syncToFolder(); }
+  function persistExpenseCategories() { save(LS_EXPENSE_CATEGORIES, expenseCategories); syncToFolder(); }
 
   function locationByName(name) {
     const v = (name || "").trim().toLowerCase();
@@ -167,6 +176,7 @@
     if (name === "inventory") renderInventory();
     if (name === "sell") renderSellForm();
     if (name === "sales") renderSalesLog();
+    if (name === "expenses") renderExpenses();
     if (name === "settings") renderSettings();
     window.scrollTo({ top: 0 });
   }
@@ -214,6 +224,12 @@
       return d >= start && d <= end;
     });
   }
+  function expensesInRange(start, end) {
+    return expenses.filter((x) => {
+      const d = new Date(x.date + "T12:00:00");
+      return d >= start && d <= end;
+    });
+  }
   function periodDays(period, start, end) {
     if (period === "all") {
       if (sales.length === 0) return 1;
@@ -247,6 +263,7 @@
   function renderDashboard() {
     const { start, end } = periodRange(currentPeriod);
     const periodSales = salesInRange(start, end);
+    const periodExpenses = expensesInRange(start, end);
     const days = periodDays(currentPeriod, start, end);
 
     const revenue = periodSales.reduce((s, x) => s + saleRevenue(x), 0);
@@ -257,6 +274,8 @@
     const velocity = units / days;
     const sunk = sunkCost();
     const marginPct = revenue > 0 ? (margin / revenue) * 100 : 0;
+    const totalExpenses = periodExpenses.reduce((s, x) => s + x.amount, 0);
+    const netProfit = margin - totalExpenses;
 
     const grid = document.getElementById("stat-grid");
     grid.innerHTML = `
@@ -269,6 +288,11 @@
         <span class="stat-label">Margin earned</span>
         <span class="stat-value accent">${fmtMoney(margin)}</span>
         <span class="stat-sub">${fmtNum(marginPct)}% of revenue</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Net profit</span>
+        <span class="stat-value ${netProfit < 0 ? "" : "accent"}" style="${netProfit < 0 ? "color:var(--critical)" : ""}">${fmtMoneySigned(netProfit)}</span>
+        <span class="stat-sub">margin minus ${fmtMoney(totalExpenses)} in expenses</span>
       </div>
       <div class="stat-card">
         <span class="stat-label">Sunk cost of stock</span>
@@ -288,6 +312,7 @@
     renderTrendChart(start, end);
     renderLocationChart(periodSales);
     renderMixChart(periodSales);
+    renderExpenseChart(periodExpenses);
     renderTopSellers(periodSales);
     renderReorderWatch();
     renderPromoWatch();
@@ -395,6 +420,26 @@
         <span class="label">${escapeHtml(loc)}</span>
         <span class="bar-track"><span class="bar-fill" style="width:${clamp((rev / max) * 100, 4, 100)}%"></span></span>
         <span class="amount">${fmtMoney(rev)}</span>
+      </div>`).join("")}</div>`;
+  }
+
+  function renderExpenseChart(periodExpenses) {
+    const wrap = document.getElementById("expense-chart");
+    const byCat = {};
+    periodExpenses.forEach((x) => {
+      byCat[x.category] = (byCat[x.category] || 0) + x.amount;
+    });
+    const entries = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
+    if (entries.length === 0) {
+      wrap.innerHTML = `<p class="empty-row">No expenses recorded in this window yet.</p>`;
+      return;
+    }
+    const max = entries[0][1];
+    wrap.innerHTML = `<div class="bar-chart">${entries.map(([cat, amt]) => `
+      <div class="bar-row">
+        <span class="label">${escapeHtml(cat)}</span>
+        <span class="bar-track"><span class="bar-fill" style="width:${clamp((amt / max) * 100, 4, 100)}%; background:var(--critical)"></span></span>
+        <span class="amount">${fmtMoney(amt)}</span>
       </div>`).join("")}</div>`;
   }
 
@@ -1034,6 +1079,193 @@
   });
 
   /* ============================================================
+     EXPENSES
+  ============================================================ */
+  function expenseCategoryByName(name) {
+    const v = (name || "").trim().toLowerCase();
+    return expenseCategories.find((c) => c.toLowerCase() === v);
+  }
+  function ensureExpenseCategory(name) {
+    const trimmed = (name || "").trim();
+    if (!trimmed) return "";
+    const existing = expenseCategoryByName(trimmed);
+    if (existing) return existing;
+    expenseCategories.push(trimmed);
+    persistExpenseCategories();
+    return trimmed;
+  }
+  function refreshExpenseCategoryOptions() {
+    document.getElementById("expense-category-options").innerHTML =
+      expenseCategories.map((c) => `<option value="${escapeHtml(c)}"></option>`).join("");
+  }
+
+  const expenseForm = document.getElementById("expense-form");
+  document.getElementById("expense-date").value = todayISO();
+  refreshExpenseCategoryOptions();
+
+  expenseForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const date = document.getElementById("expense-date").value || todayISO();
+    const categoryRaw = document.getElementById("expense-category").value.trim();
+    const amount = Number(document.getElementById("expense-amount").value);
+    const note = document.getElementById("expense-note").value.trim();
+    if (!categoryRaw) { showToast("Add a category"); return; }
+    if (!amount || amount <= 0) { showToast("Amount must be greater than 0"); return; }
+
+    const category = ensureExpenseCategory(categoryRaw);
+    expenses.push({ id: uid(), date, category, amount, note, createdAt: Date.now() });
+    persistExpenses();
+
+    showToast(`Expense added — ${fmtMoney(amount)}`);
+    expenseForm.reset();
+    document.getElementById("expense-date").value = todayISO();
+    refreshExpenseCategoryOptions();
+    renderExpenses();
+    renderDashboard();
+  });
+
+  let expenseQuery = "";
+  let expenseSortKey = "date";
+  let expenseSortDir = "desc";
+  const EXPENSE_TEXT_COLS = new Set(["category"]);
+
+  document.getElementById("expense-search").addEventListener("input", (e) => {
+    expenseQuery = e.target.value.trim().toLowerCase();
+    renderExpenses();
+  });
+  document.getElementById("expense-filter-category").addEventListener("change", renderExpenses);
+  document.getElementById("expense-filter-from").addEventListener("change", renderExpenses);
+  document.getElementById("expense-filter-to").addEventListener("change", renderExpenses);
+  document.getElementById("btn-expense-clear-filters").addEventListener("click", () => {
+    expenseQuery = "";
+    document.getElementById("expense-search").value = "";
+    document.getElementById("expense-filter-category").value = "";
+    document.getElementById("expense-filter-from").value = "";
+    document.getElementById("expense-filter-to").value = "";
+    renderExpenses();
+  });
+  document.querySelector("#expense-table thead").addEventListener("click", (e) => {
+    const th = e.target.closest("th[data-sort]");
+    if (!th) return;
+    const key = th.dataset.sort;
+    if (expenseSortKey === key) {
+      expenseSortDir = expenseSortDir === "asc" ? "desc" : "asc";
+    } else {
+      expenseSortKey = key;
+      expenseSortDir = EXPENSE_TEXT_COLS.has(key) ? "asc" : "desc";
+    }
+    renderExpenses();
+  });
+
+  function renderExpenses() {
+    const tbody = document.getElementById("expense-tbody");
+    document.getElementById("expense-empty").hidden = expenses.length !== 0;
+
+    const catSelect = document.getElementById("expense-filter-category");
+    if (catSelect.dataset.optionsFor !== expenseCategories.join("|")) {
+      catSelect.innerHTML = `<option value="">All categories</option>` +
+        expenseCategories.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+      catSelect.dataset.optionsFor = expenseCategories.join("|");
+    }
+
+    const catFilter = document.getElementById("expense-filter-category").value;
+    const fromFilter = document.getElementById("expense-filter-from").value;
+    const toFilter = document.getElementById("expense-filter-to").value;
+
+    let rows = expenses
+      .filter((x) => !expenseQuery || [x.category, x.note].join(" ").toLowerCase().includes(expenseQuery))
+      .filter((x) => !catFilter || x.category === catFilter)
+      .filter((x) => !fromFilter || x.date >= fromFilter)
+      .filter((x) => !toFilter || x.date <= toFilter);
+
+    rows.sort((a, b) => {
+      let av, bv;
+      switch (expenseSortKey) {
+        case "date": av = a.date + a.createdAt; bv = b.date + b.createdAt; break;
+        case "category": av = a.category.toLowerCase(); bv = b.category.toLowerCase(); break;
+        case "amount": av = a.amount; bv = b.amount; break;
+        default: av = a.date; bv = b.date;
+      }
+      const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+      return expenseSortDir === "asc" ? cmp : -cmp;
+    });
+
+    document.querySelectorAll("#expense-table th[data-sort]").forEach((th) => {
+      const active = th.dataset.sort === expenseSortKey;
+      th.classList.toggle("is-sorted", active);
+      th.innerHTML = th.textContent.replace(/\s*[▲▼]?\s*$/, "") +
+        (active ? `<span class="sort-arrow">${expenseSortDir === "asc" ? "▲" : "▼"}</span>` : "");
+    });
+
+    const totalAmount = rows.reduce((sum, x) => sum + x.amount, 0);
+    document.getElementById("expense-log-summary").innerHTML = expenses.length
+      ? `<span><strong>${rows.length}</strong> row${rows.length === 1 ? "" : "s"}</span><span><strong>${fmtMoney(totalAmount)}</strong> total</span>`
+      : "";
+
+    tbody.innerHTML = rows.map((x) => `
+      <tr data-id="${x.id}">
+        <td>${x.date}</td>
+        <td>${escapeHtml(x.category)}</td>
+        <td class="num">${fmtMoney(x.amount)}</td>
+        <td>${escapeHtml(x.note || "")}</td>
+        <td><button class="row-btn" data-action="edit-expense" data-id="${x.id}">Edit</button></td>
+      </tr>`).join("");
+  }
+
+  document.getElementById("expense-tbody").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-action='edit-expense']");
+    if (btn) openExpenseModal(btn.dataset.id);
+  });
+
+  /* --- expense edit modal --- */
+  const expenseModal = document.getElementById("expense-modal-backdrop");
+  const expenseEditForm = document.getElementById("expense-edit-form");
+  function openExpenseModal(id) {
+    const x = expenses.find((e) => e.id === id);
+    if (!x) return;
+    document.getElementById("expense-edit-id").value = x.id;
+    document.getElementById("expense-edit-date").value = x.date;
+    document.getElementById("expense-edit-category").value = x.category;
+    document.getElementById("expense-edit-amount").value = x.amount;
+    document.getElementById("expense-edit-note").value = x.note || "";
+    expenseModal.hidden = false;
+  }
+  function closeExpenseModal() { expenseModal.hidden = true; }
+  document.getElementById("expense-modal-close").addEventListener("click", closeExpenseModal);
+  document.getElementById("expense-modal-cancel").addEventListener("click", closeExpenseModal);
+  expenseModal.addEventListener("click", (e) => { if (e.target === expenseModal) closeExpenseModal(); });
+
+  expenseEditForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const id = document.getElementById("expense-edit-id").value;
+    const x = expenses.find((exp) => exp.id === id);
+    if (!x) return;
+    x.date = document.getElementById("expense-edit-date").value;
+    x.category = ensureExpenseCategory(document.getElementById("expense-edit-category").value);
+    x.amount = Number(document.getElementById("expense-edit-amount").value) || 0;
+    x.note = document.getElementById("expense-edit-note").value.trim();
+    persistExpenses();
+    closeExpenseModal();
+    refreshExpenseCategoryOptions();
+    renderExpenses();
+    renderDashboard();
+    showToast("Expense updated");
+  });
+
+  document.getElementById("expense-delete-btn").addEventListener("click", () => {
+    const id = document.getElementById("expense-edit-id").value;
+    const x = expenses.find((exp) => exp.id === id);
+    if (!x) return;
+    if (!confirm(`Delete this ${fmtMoney(x.amount)} expense?`)) return;
+    expenses = expenses.filter((exp) => exp.id !== id);
+    persistExpenses();
+    closeExpenseModal();
+    renderExpenses();
+    renderDashboard();
+    showToast("Expense deleted");
+  });
+
+  /* ============================================================
      SETTINGS
   ============================================================ */
   function refreshLocationOptions() {
@@ -1055,10 +1287,39 @@
           </button>
         </td>
       </tr>`).join("");
+    const catList = document.getElementById("expense-category-list");
+    catList.innerHTML = expenseCategories.map((cat) => `
+      <li>
+        <span>${escapeHtml(cat)}</span>
+        <button type="button" data-cat="${escapeHtml(cat)}" aria-label="Remove ${escapeHtml(cat)}">
+          <svg viewBox="0 0 24 24" width="13" height="13"><line x1="5" y1="5" x2="19" y2="19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><line x1="19" y1="5" x2="5" y2="19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+        </button>
+      </li>`).join("");
+
     document.getElementById("low-stock-threshold").value = settings.lowStockThreshold;
     refreshLocationOptions();
+    refreshExpenseCategoryOptions();
     renderFolderStatus();
   }
+
+  document.getElementById("expense-category-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const input = document.getElementById("new-expense-category");
+    const val = input.value.trim();
+    if (!val) return;
+    if (!expenseCategoryByName(val)) { expenseCategories.push(val); persistExpenseCategories(); renderSettings(); }
+    input.value = "";
+  });
+  document.getElementById("expense-category-list").addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-cat]");
+    if (!btn) return;
+    const cat = btn.dataset.cat;
+    const inUse = expenses.some((x) => x.category === cat);
+    if (inUse && !confirm(`"${cat}" is used by existing expenses. Remove it from the quick-pick list anyway? (Those expenses are unaffected.)`)) return;
+    expenseCategories = expenseCategories.filter((c) => c !== cat);
+    persistExpenseCategories();
+    renderSettings();
+  });
 
   document.getElementById("platform-tbody").addEventListener("click", (e) => {
     const removeBtn = e.target.closest("[data-action='remove-loc']");
@@ -1272,8 +1533,7 @@
   });
 
   document.getElementById("btn-export").addEventListener("click", () => {
-    const payload = { books, sales, locations, settings, exportedAt: new Date().toISOString() };
-    downloadBlob(`kasembannakij-backup-${todayISO()}.json`, JSON.stringify(payload, null, 2), "application/json");
+    downloadBlob(`kasembannakij-backup-${todayISO()}.json`, JSON.stringify(currentSnapshot(), null, 2), "application/json");
     showToast("Backup downloaded");
   });
 
@@ -1285,6 +1545,14 @@
     showToast("Sales CSV downloaded");
   });
 
+  document.getElementById("btn-export-expenses-csv").addEventListener("click", () => {
+    const header = ["Date", "Category", "Amount", "Note"];
+    const rows = expenses.map((x) => [x.date, x.category, x.amount, x.note || ""]);
+    const csv = [header, ...rows].map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\r\n");
+    downloadBlob(`kasembannakij-expenses-${todayISO()}.csv`, csv, "text/csv");
+    showToast("Expenses CSV downloaded");
+  });
+
   document.getElementById("import-file").addEventListener("change", (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -1294,19 +1562,8 @@
         const data = JSON.parse(reader.result);
         if (!Array.isArray(data.books) || !Array.isArray(data.sales)) throw new Error("bad shape");
         if (!confirm("Import will replace all current data on this device. Continue?")) return;
-        books = data.books; sales = data.sales;
-        locations = Array.isArray(data.locations) ? data.locations : locations;
-        if (locations.length && typeof locations[0] === "string") {
-          locations = locations.map((name) => ({ id: uid(), name, commissionPct: 0 }));
-        }
-        sales.forEach((s) => {
-          if (!s.saleType) s.saleType = "retail";
-          if (typeof s.commissionPct !== "number") s.commissionPct = 0;
-          if (!s.orderId) s.orderId = s.id;
-          if (typeof s.customer !== "string") s.customer = "";
-        });
-        settings = data.settings || settings;
-        persistBooks(); persistSales(); persistLocations(); persistSettings();
+        applyImportedData(data);
+        syncToFolder();
         showToast("Backup imported");
         setView("dashboard");
       } catch (err) {
@@ -1318,10 +1575,11 @@
   });
 
   document.getElementById("btn-reset").addEventListener("click", () => {
-    if (!confirm("This erases every book and sale on this device. This cannot be undone. Continue?")) return;
+    if (!confirm("This erases every book, sale, and expense on this device. This cannot be undone. Continue?")) return;
     if (!confirm("Really erase everything? Consider exporting a backup first.")) return;
     books = []; sales = []; locations = DEFAULT_LOCATIONS.map((l) => ({ ...l, id: uid() })); settings = { lowStockThreshold: 3 };
-    persistBooks(); persistSales(); persistLocations(); persistSettings();
+    expenses = []; expenseCategories = [...DEFAULT_EXPENSE_CATEGORIES];
+    persistBooks(); persistSales(); persistLocations(); persistSettings(); persistExpenses(); persistExpenseCategories();
     showToast("All data erased");
     setView("dashboard");
   });
@@ -1372,7 +1630,7 @@
     return `${b} book${b === 1 ? "" : "s"}, ${s} sale${s === 1 ? "" : "s"}`;
   }
   function currentSnapshot() {
-    return { books, sales, locations, settings, exportedAt: new Date().toISOString() };
+    return { books, sales, locations, settings, expenses, expenseCategories, exportedAt: new Date().toISOString() };
   }
 
   async function folderReadFile() {
@@ -1406,8 +1664,11 @@
       if (typeof s.customer !== "string") s.customer = "";
     });
     settings = data.settings || settings;
+    expenses = Array.isArray(data.expenses) ? data.expenses : [];
+    expenseCategories = Array.isArray(data.expenseCategories) && data.expenseCategories.length ? data.expenseCategories : DEFAULT_EXPENSE_CATEGORIES;
     save(LS_BOOKS, books); save(LS_SALES, sales); save(LS_LOCATIONS, locations); save(LS_SETTINGS, settings);
-    renderInventory(); renderSellForm(); renderSalesLog(); renderDashboard(); renderSettings();
+    save(LS_EXPENSES, expenses); save(LS_EXPENSE_CATEGORIES, expenseCategories);
+    renderInventory(); renderSellForm(); renderSalesLog(); renderExpenses(); renderDashboard(); renderSettings();
   }
 
   const conflictModal = document.getElementById("conflict-modal-backdrop");

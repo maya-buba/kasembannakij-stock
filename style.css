@@ -230,6 +230,18 @@ input:focus { border-color: var(--accent); }
 }
 .commission-pill svg { opacity: .55; }
 
+.chip-list { list-style: none; margin: 0; padding: 0; display: flex; gap: 8px; flex-wrap: wrap; }
+.chip-list li {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 999px; padding: 6px 8px 6px 14px; font-size: .88rem; font-weight: 600;
+}
+.chip-list button {
+  border: none; background: none; color: var(--ink-faint); cursor: pointer;
+  width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+}
+.chip-list button:hover { background: var(--critical-soft); color: var(--critical); }
+
 /* ---------------- Stat grid ---------------- */
 .stat-grid {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
