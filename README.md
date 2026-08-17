@@ -36,7 +36,8 @@ section — and needs no CLI, just the Cloudflare dashboard.
    code. Deploy.
 3. **Bind the KV namespace to the Worker.** On the Worker's page → Settings →
    Variables → KV Namespace Bindings → Add binding. Variable name must be
-   exactly `KASEMBANNAKIJ_KV`, bound to the namespace from step 1.
+   exactly `kasembannakij_kv` (lowercase, underscore — not the namespace's own
+   name), bound to the namespace from step 1.
 4. **Set the sync passphrase.** Same Settings → Variables page → Environment
    Variables → Add → name it `SYNC_TOKEN`, value is a passphrase you make up
    (treat it like a password — anyone with it can read/write your data), and

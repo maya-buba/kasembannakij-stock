@@ -52,7 +52,7 @@ export default {
     }
 
     if (request.method === "GET") {
-      const raw = await env.KASEMBANNAKIJ_KV.get("state");
+      const raw = await env.kasembannakij_kv.get("state");
       return json(raw ? JSON.parse(raw) : EMPTY_STATE, 200, origin);
     }
 
@@ -67,7 +67,7 @@ export default {
         return json({ error: "expected { data, baseUpdatedAt }" }, 400, origin);
       }
 
-      const raw = await env.KASEMBANNAKIJ_KV.get("state");
+      const raw = await env.kasembannakij_kv.get("state");
       const existing = raw ? JSON.parse(raw) : EMPTY_STATE;
       const baseUpdatedAt = Number(body.baseUpdatedAt) || 0;
 
@@ -76,7 +76,7 @@ export default {
       }
 
       const toStore = { ...body.data, updatedAt: Date.now() };
-      await env.KASEMBANNAKIJ_KV.put("state", JSON.stringify(toStore));
+      await env.kasembannakij_kv.put("state", JSON.stringify(toStore));
       return json({ ok: true, updatedAt: toStore.updatedAt }, 200, origin);
     }
 
