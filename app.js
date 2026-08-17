@@ -32,6 +32,15 @@
     { id: uid(), name: "Consignment", commissionPct: 0 },
   ];
 
+  const LS_CLOUD = "kbnk.cloud.v1";
+  const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+  const DRIVE_FILENAME = "kasembannakij-backup.json";
+  let cloud = load(LS_CLOUD, { clientId: "", fileId: "", connected: false, lastBackupAt: 0 });
+  let driveTokenClient = null;
+  let driveAccessToken = "";
+  let driveTokenExpiresAt = 0;
+  let driveStatus = "idle"; // idle | syncing | ok | error | needs-reconnect
+
   let books = load(LS_BOOKS, []);
   let sales = load(LS_SALES, []);
   const locationsIsFresh = localStorage.getItem(LS_LOCATIONS) === null;
@@ -54,10 +63,10 @@
   });
   if (salesMigrated) save(LS_SALES, sales);
 
-  function persistBooks() { save(LS_BOOKS, books); }
-  function persistSales() { save(LS_SALES, sales); }
-  function persistLocations() { save(LS_LOCATIONS, locations); }
-  function persistSettings() { save(LS_SETTINGS, settings); }
+  function persistBooks() { save(LS_BOOKS, books); scheduleCloudBackup(); }
+  function persistSales() { save(LS_SALES, sales); scheduleCloudBackup(); }
+  function persistLocations() { save(LS_LOCATIONS, locations); scheduleCloudBackup(); }
+  function persistSettings() { save(LS_SETTINGS, settings); scheduleCloudBackup(); }
 
   function locationByName(name) {
     const v = (name || "").trim().toLowerCase();
@@ -91,6 +100,48 @@
   const fmtNum = (n, d = 1) => Number(n).toLocaleString("en-US", { maximumFractionDigits: d });
   const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
   const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  /* RFC4180-ish CSV parser: handles quoted fields, embedded commas/newlines, "" escapes */
+  function parseCSV(text) {
+    const rows = [];
+    let row = [], field = "", inQuotes = false;
+    const clean = text.replace(/^﻿/, "");
+    for (let i = 0; i < clean.length; i++) {
+      const c = clean[i], next = clean[i + 1];
+      if (inQuotes) {
+        if (c === '"' && next === '"') { field += '"'; i++; }
+        else if (c === '"') { inQuotes = false; }
+        else { field += c; }
+      } else if (c === '"') {
+        inQuotes = true;
+      } else if (c === ",") {
+        row.push(field); field = "";
+      } else if (c === "\n" || c === "\r") {
+        if (c === "\r" && next === "\n") i++;
+        row.push(field); field = "";
+        if (row.some((v) => v !== "")) rows.push(row);
+        row = [];
+      } else {
+        field += c;
+      }
+    }
+    if (field !== "" || row.length) { row.push(field); if (row.some((v) => v !== "")) rows.push(row); }
+    return rows;
+  }
+
+  function csvRowsToObjects(rows) {
+    if (!rows.length) return [];
+    const headers = rows[0].map((h) => h.trim().toLowerCase());
+    return rows.slice(1).map((r) => {
+      const obj = {};
+      headers.forEach((h, i) => { obj[h] = (r[i] || "").trim(); });
+      return obj;
+    });
+  }
+  function pick(obj, ...keys) {
+    for (const k of keys) { if (obj[k] !== undefined && obj[k] !== "") return obj[k]; }
+    return "";
+  }
 
   function activeBooks() { return books.filter((b) => !b.archived); }
   function bookById(id) { return books.find((b) => b.id === id); }
@@ -882,6 +933,7 @@
       </tr>`).join("");
     document.getElementById("low-stock-threshold").value = settings.lowStockThreshold;
     refreshLocationOptions();
+    renderDriveStatus();
   }
 
   document.getElementById("platform-tbody").addEventListener("click", (e) => {
@@ -965,6 +1017,136 @@
     URL.revokeObjectURL(url);
   }
 
+  /* --- bulk import: books --- */
+  document.getElementById("btn-template-books").addEventListener("click", () => {
+    const csv = [
+      ["Title", "Author", "Price", "Wholesale Price", "Cost", "Stock"],
+      ["Sapiens", "Yuval Noah Harari", "450", "320", "260", "12"],
+    ].map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\r\n");
+    downloadBlob("kasembannakij-books-template.csv", csv, "text/csv");
+  });
+
+  document.getElementById("import-books-file").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const resultEl = document.getElementById("import-books-result");
+      try {
+        const objs = csvRowsToObjects(parseCSV(reader.result));
+        let added = 0, updated = 0;
+        const errors = [];
+        objs.forEach((row, i) => {
+          const title = pick(row, "title");
+          if (!title) { errors.push(`Row ${i + 2}: missing Title, skipped`); return; }
+          const price = Number(pick(row, "price", "retail price")) || 0;
+          const wholesalePrice = Number(pick(row, "wholesale price", "wholesale")) || 0;
+          const cost = Number(pick(row, "cost", "cost per unit")) || 0;
+          const stockVal = pick(row, "stock", "current stock");
+          const author = pick(row, "author");
+          const existing = books.find((b) => b.title.toLowerCase() === title.toLowerCase());
+          if (existing) {
+            existing.author = author || existing.author;
+            existing.price = price || existing.price;
+            existing.wholesalePrice = wholesalePrice || existing.wholesalePrice;
+            existing.cost = cost || existing.cost;
+            if (stockVal !== "") existing.stock = Number(stockVal) || 0;
+            updated++;
+          } else {
+            books.push({
+              id: uid(), title, author, price, wholesalePrice, cost,
+              stock: stockVal !== "" ? Number(stockVal) || 0 : 0,
+              archived: false, createdAt: Date.now(),
+            });
+            added++;
+          }
+        });
+        persistBooks();
+        renderInventory();
+        renderSellForm();
+        resultEl.innerHTML = `<div class="ir-ok">${added} added, ${updated} updated.</div>` +
+          (errors.length ? `<ul class="ir-errors">${errors.map((e) => `<li>${escapeHtml(e)}</li>`).join("")}</ul>` : "");
+        showToast(`Imported ${added + updated} book${added + updated === 1 ? "" : "s"}`);
+      } catch (err) {
+        resultEl.innerHTML = `<div class="ir-errors">Could not read that file as CSV.</div>`;
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  });
+
+  /* --- bulk import: sales --- */
+  document.getElementById("btn-template-sales").addEventListener("click", () => {
+    const csv = [
+      ["Order ID", "Date", "Customer", "Title", "Type", "Qty", "Unit Price", "Location", "Note"],
+      ["", "2026-08-17", "Khun Nid", "Sapiens", "Retail", "2", "450", "Storefront", ""],
+    ].map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\r\n");
+    downloadBlob("kasembannakij-sales-template.csv", csv, "text/csv");
+  });
+
+  document.getElementById("import-sales-file").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const deduct = document.getElementById("import-sales-deduct").checked;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const resultEl = document.getElementById("import-sales-result");
+      try {
+        const objs = csvRowsToObjects(parseCSV(reader.result));
+        let imported = 0;
+        const errors = [];
+        const orderIdMap = {};
+        objs.forEach((row, i) => {
+          const title = pick(row, "title");
+          const date = pick(row, "date") || todayISO();
+          const qty = Number(pick(row, "qty", "quantity")) || 0;
+          const unitPrice = Number(pick(row, "unit price", "price")) || 0;
+          const locationName = pick(row, "location", "where");
+          const rawOrderId = pick(row, "order id");
+          const saleTypeRaw = pick(row, "type", "sale type").toLowerCase();
+          const saleType = saleTypeRaw.startsWith("whole") ? "wholesale" : "retail";
+          const customer = pick(row, "customer");
+          const note = pick(row, "note");
+
+          if (!title) { errors.push(`Row ${i + 2}: missing Title, skipped`); return; }
+          const book = books.find((b) => b.title.toLowerCase() === title.toLowerCase());
+          if (!book) { errors.push(`Row ${i + 2}: no book titled "${title}" in Inventory, skipped`); return; }
+          if (!qty || qty < 1) { errors.push(`Row ${i + 2}: invalid quantity, skipped`); return; }
+          if (!locationName) { errors.push(`Row ${i + 2}: missing Location, skipped`); return; }
+
+          const loc = ensureLocation(locationName);
+          let orderId;
+          if (rawOrderId) {
+            orderId = orderIdMap[rawOrderId] || (orderIdMap[rawOrderId] = uid());
+          } else {
+            orderId = uid();
+          }
+
+          sales.push({
+            id: uid(), orderId, bookId: book.id, bookTitle: book.title,
+            saleType, qty, unitPrice: unitPrice || book.price, unitCost: book.cost,
+            commissionPct: loc.commissionPct,
+            date, location: loc.name, customer, note, createdAt: Date.now(),
+          });
+          if (deduct) book.stock -= qty;
+          imported++;
+        });
+        persistSales();
+        if (deduct) persistBooks();
+        renderSalesLog();
+        renderInventory();
+        renderDashboard();
+        resultEl.innerHTML = `<div class="ir-ok">${imported} sale${imported === 1 ? "" : "s"} imported${deduct ? ", stock adjusted" : ""}.</div>` +
+          (errors.length ? `<ul class="ir-errors">${errors.map((e) => `<li>${escapeHtml(e)}</li>`).join("")}</ul>` : "");
+        showToast(`Imported ${imported} sale${imported === 1 ? "" : "s"}`);
+      } catch (err) {
+        resultEl.innerHTML = `<div class="ir-errors">Could not read that file as CSV.</div>`;
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  });
+
   document.getElementById("btn-export").addEventListener("click", () => {
     const payload = { books, sales, locations, settings, exportedAt: new Date().toISOString() };
     downloadBlob(`kasembannakij-backup-${todayISO()}.json`, JSON.stringify(payload, null, 2), "application/json");
@@ -1019,6 +1201,192 @@
     showToast("All data erased");
     setView("dashboard");
   });
+
+  /* ============================================================
+     GOOGLE DRIVE AUTO-BACKUP
+  ============================================================ */
+  function persistCloud() { save(LS_CLOUD, cloud); }
+
+  function driveWaitForGis(timeoutMs = 10000) {
+    return new Promise((resolve) => {
+      const start = Date.now();
+      (function poll() {
+        if (window.google && window.google.accounts && window.google.accounts.oauth2) { resolve(true); return; }
+        if (Date.now() - start > timeoutMs) { resolve(false); return; }
+        setTimeout(poll, 250);
+      })();
+    });
+  }
+
+  async function driveInitTokenClient() {
+    if (!cloud.clientId) return false;
+    const ready = await driveWaitForGis();
+    if (!ready) return false;
+    if (!driveTokenClient) {
+      driveTokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: cloud.clientId,
+        scope: DRIVE_SCOPE,
+        callback: () => {}, // overridden per-request in driveEnsureToken
+      });
+    }
+    return true;
+  }
+
+  function driveEnsureToken(interactive) {
+    return new Promise((resolve) => {
+      if (!driveTokenClient) { resolve(false); return; }
+      if (driveAccessToken && driveTokenExpiresAt > Date.now() + 30000) { resolve(true); return; }
+      let settled = false;
+      driveTokenClient.callback = (resp) => {
+        if (settled) return;
+        settled = true;
+        if (resp && resp.access_token) {
+          driveAccessToken = resp.access_token;
+          driveTokenExpiresAt = Date.now() + (resp.expires_in || 3000) * 1000;
+          resolve(true);
+        } else {
+          resolve(false);
+        }
+      };
+      driveTokenClient.error_callback = () => { if (!settled) { settled = true; resolve(false); } };
+      setTimeout(() => { if (!settled) { settled = true; resolve(false); } }, 12000);
+      try {
+        driveTokenClient.requestAccessToken({ prompt: interactive ? "consent" : "" });
+      } catch (e) {
+        if (!settled) { settled = true; resolve(false); }
+      }
+    });
+  }
+
+  async function driveApiFetch(url, options) {
+    const res = await fetch(url, {
+      ...options,
+      headers: { Authorization: `Bearer ${driveAccessToken}`, ...(options && options.headers) },
+    });
+    if (!res.ok) throw new Error(`Drive API ${res.status}`);
+    return res;
+  }
+
+  async function driveEnsureFile() {
+    if (cloud.fileId) return cloud.fileId;
+    const res = await driveApiFetch("https://www.googleapis.com/drive/v3/files", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: DRIVE_FILENAME }),
+    });
+    const data = await res.json();
+    cloud.fileId = data.id;
+    persistCloud();
+    return cloud.fileId;
+  }
+
+  async function driveUploadBackup() {
+    const payload = { books, sales, locations, settings, exportedAt: new Date().toISOString() };
+    const fileId = await driveEnsureFile();
+    await driveApiFetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload, null, 2),
+    });
+  }
+
+  async function driveBackupNow(interactive) {
+    if (!cloud.connected && !interactive) return;
+    driveStatus = "syncing";
+    renderDriveStatus();
+    const ok = await driveEnsureToken(interactive);
+    if (!ok) {
+      driveStatus = cloud.connected ? "needs-reconnect" : "error";
+      renderDriveStatus();
+      return;
+    }
+    try {
+      await driveUploadBackup();
+      cloud.connected = true;
+      cloud.lastBackupAt = Date.now();
+      persistCloud();
+      driveStatus = "ok";
+    } catch (e) {
+      console.error("Drive backup failed", e);
+      driveStatus = "error";
+    }
+    renderDriveStatus();
+  }
+
+  function scheduleCloudBackup() {
+    if (!cloud.connected || !cloud.clientId) return;
+    driveBackupNow(false);
+  }
+
+  function relativeTime(ts) {
+    if (!ts) return "never";
+    const mins = Math.round((Date.now() - ts) / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins} min ago`;
+    const hours = Math.round(mins / 60);
+    if (hours < 24) return `${hours} hr ago`;
+    return `${Math.round(hours / 24)} day(s) ago`;
+  }
+
+  function renderDriveStatus() {
+    const note = document.getElementById("drive-status-note");
+    const idInput = document.getElementById("drive-client-id");
+    const connectBtn = document.getElementById("btn-drive-connect");
+    const backupBtn = document.getElementById("btn-drive-backup-now");
+    const disconnectBtn = document.getElementById("btn-drive-disconnect");
+
+    if (document.activeElement !== idInput) idInput.value = cloud.clientId;
+
+    if (!cloud.clientId) {
+      note.textContent = "Not connected. Paste your Google OAuth Client ID above, save it, then connect.";
+      connectBtn.hidden = true; backupBtn.hidden = true; disconnectBtn.hidden = true;
+      return;
+    }
+    if (!cloud.connected) {
+      note.textContent = "Client ID saved. Tap Connect to sign in and start auto-backing-up to Google Drive.";
+      connectBtn.hidden = false; backupBtn.hidden = true; disconnectBtn.hidden = true;
+      return;
+    }
+    connectBtn.hidden = true; backupBtn.hidden = false; disconnectBtn.hidden = false;
+    const last = `last backup ${relativeTime(cloud.lastBackupAt)}`;
+    if (driveStatus === "syncing") note.textContent = `Backing up to Google Drive…`;
+    else if (driveStatus === "error") note.textContent = `Backup failed — check your connection. (${last})`;
+    else if (driveStatus === "needs-reconnect") note.textContent = `Sign-in expired — tap "Back up now" to reconnect. (${last})`;
+    else note.textContent = `Connected to Google Drive — ${last}.`;
+  }
+
+  document.getElementById("btn-drive-save-id").addEventListener("click", async () => {
+    const val = document.getElementById("drive-client-id").value.trim();
+    if (!val) return;
+    cloud.clientId = val;
+    persistCloud();
+    driveTokenClient = null;
+    const ok = await driveInitTokenClient();
+    if (!ok) showToast("Couldn't load Google sign-in — check your connection");
+    renderDriveStatus();
+  });
+
+  document.getElementById("btn-drive-connect").addEventListener("click", async () => {
+    await driveInitTokenClient();
+    await driveBackupNow(true);
+    if (cloud.connected) showToast("Connected to Google Drive");
+  });
+
+  document.getElementById("btn-drive-backup-now").addEventListener("click", async () => {
+    await driveInitTokenClient();
+    await driveBackupNow(true);
+  });
+
+  document.getElementById("btn-drive-disconnect").addEventListener("click", () => {
+    if (!confirm("Disconnect Google Drive backup? Local data is unaffected.")) return;
+    cloud.connected = false;
+    driveAccessToken = "";
+    persistCloud();
+    renderDriveStatus();
+    showToast("Disconnected from Google Drive");
+  });
+
+  if (cloud.clientId) driveInitTokenClient();
 
   /* ---------------- boot ---------------- */
   setView("dashboard");

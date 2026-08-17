@@ -97,6 +97,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
@@ -426,6 +427,29 @@ input:focus { border-color: var(--accent); }
 .loc-manager { display: flex; flex-direction: column; gap: 14px; }
 .inline-form { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .inline-form input[type="text"] { max-width: 240px; }
+
+.btn-sm { padding: 7px 13px; min-height: 36px; font-size: .82rem; }
+
+.import-block { padding: 14px 0; border-top: 1px solid var(--border); }
+.import-block:first-of-type { border-top: none; padding-top: 4px; }
+.import-block-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+.import-block-head h3 { font-size: .95rem; font-family: var(--font-body); font-weight: 700; }
+.import-result { margin-top: 10px; font-size: .85rem; }
+.import-result:empty { display: none; }
+.import-result .ir-ok { color: var(--good); font-weight: 600; }
+.import-result .ir-errors { margin: 6px 0 0; padding-left: 18px; color: var(--critical); }
+.import-result .ir-errors li { margin-bottom: 2px; }
+
+.checkbox-field {
+  display: flex; align-items: flex-start; gap: 9px; margin-bottom: 12px;
+  font-size: .86rem; color: var(--ink-muted); cursor: pointer; max-width: 46rem;
+}
+.checkbox-field input { width: 18px; height: 18px; flex-shrink: 0; margin-top: 1px; accent-color: var(--accent); }
+
+.drive-badge { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+.drive-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-faint); }
+.drive-dot.on { background: var(--good); }
+.drive-dot.err { background: var(--critical); }
 
 /* ---------------- Modal ---------------- */
 .modal-backdrop {
