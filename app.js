@@ -35,13 +35,10 @@
   ];
   const DEFAULT_EXPENSE_CATEGORIES = ["Rent", "Utilities", "Staff wages", "Packaging & shipping", "Marketing", "Supplies", "Other"];
 
-  const FOLDER_FILENAME = "kasembannakij-data.json";
-  const FS_SUPPORTED = typeof window.showDirectoryPicker === "function";
-  let folderHandle = null;
-  let folderConnected = false;
-  let folderNeedsReconnect = false;
-  let folderLastSyncAt = 0;
-  let folderSyncing = false;
+  const LS_CLOUD = "kbnk.cloudsync.v1";
+  let cloud = load(LS_CLOUD, { workerUrl: "", token: "", connected: false, lastKnownUpdatedAt: 0, lastSyncAt: 0 });
+  let cloudStatus = "idle";
+  let cloudSyncing = false;
 
   let books = load(LS_BOOKS, []);
   let sales = load(LS_SALES, []);
@@ -69,12 +66,12 @@
   });
   if (salesMigrated) save(LS_SALES, sales);
 
-  function persistBooks() { save(LS_BOOKS, books); syncToFolder(); }
-  function persistSales() { save(LS_SALES, sales); syncToFolder(); }
-  function persistLocations() { save(LS_LOCATIONS, locations); syncToFolder(); }
-  function persistSettings() { save(LS_SETTINGS, settings); syncToFolder(); }
-  function persistExpenses() { save(LS_EXPENSES, expenses); syncToFolder(); }
-  function persistExpenseCategories() { save(LS_EXPENSE_CATEGORIES, expenseCategories); syncToFolder(); }
+  function persistBooks() { save(LS_BOOKS, books); triggerCloudSync(); }
+  function persistSales() { save(LS_SALES, sales); triggerCloudSync(); }
+  function persistLocations() { save(LS_LOCATIONS, locations); triggerCloudSync(); }
+  function persistSettings() { save(LS_SETTINGS, settings); triggerCloudSync(); }
+  function persistExpenses() { save(LS_EXPENSES, expenses); triggerCloudSync(); }
+  function persistExpenseCategories() { save(LS_EXPENSE_CATEGORIES, expenseCategories); triggerCloudSync(); }
 
   function locationByName(name) {
     const v = (name || "").trim().toLowerCase();
@@ -154,6 +151,9 @@
   }
 
   function activeBooks() { return books.filter((b) => !b.archived); }
+  function currentSnapshot() {
+    return { books, sales, locations, settings, expenses, expenseCategories, exportedAt: new Date().toISOString() };
+  }
   function bookById(id) { return books.find((b) => b.id === id); }
 
   function showToast(msg) {
@@ -1307,7 +1307,7 @@
     document.getElementById("low-stock-threshold").value = settings.lowStockThreshold;
     refreshLocationOptions();
     refreshExpenseCategoryOptions();
-    renderFolderStatus();
+    renderCloudStatus();
   }
 
   document.getElementById("expense-category-form").addEventListener("submit", (e) => {
@@ -1585,7 +1585,7 @@
         if (!Array.isArray(data.books) || !Array.isArray(data.sales)) throw new Error("bad shape");
         if (!confirm("Import will replace all current data on this device. Continue?")) return;
         applyImportedData(data);
-        syncToFolder();
+        triggerCloudSync();
         showToast("Backup imported");
         setView("dashboard");
       } catch (err) {
@@ -1597,7 +1597,8 @@
   });
 
   document.getElementById("btn-reset").addEventListener("click", () => {
-    if (!confirm("This erases every book, sale, and expense on this device. This cannot be undone. Continue?")) return;
+    const cloudWarning = cloud.connected ? " Since cloud sync is on, this also erases it for every other synced device." : "";
+    if (!confirm(`This erases every book, sale, and expense on this device.${cloudWarning} This cannot be undone. Continue?`)) return;
     if (!confirm("Really erase everything? Consider exporting a backup first.")) return;
     books = []; sales = []; locations = DEFAULT_LOCATIONS.map((l) => ({ ...l, id: uid() })); settings = { lowStockThreshold: 3 };
     expenses = []; expenseCategories = [...DEFAULT_EXPENSE_CATEGORIES];
@@ -1607,70 +1608,146 @@
   });
 
   /* ============================================================
-     STORAGE LOCATION — folder sync via File System Access API
-     (point it at a folder inside iCloud Drive / Dropbox / etc. —
-     the OS syncs the folder, this code only ever touches a local file)
+     CLOUD SYNC — Cloudflare Worker + KV backend
+     (every device that saves the same Worker URL + passphrase
+     reads and writes the same shared state, live)
   ============================================================ */
-  function idbOpen() {
-    return new Promise((resolve, reject) => {
-      const req = indexedDB.open("kbnk-fs", 1);
-      req.onupgradeneeded = () => req.result.createObjectStore("handles");
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
+  function persistCloudConfig() { save(LS_CLOUD, cloud); }
+
+  async function cloudFetch(path, options) {
+    return fetch(cloud.workerUrl.replace(/\/$/, "") + path, {
+      ...options,
+      headers: { Authorization: `Bearer ${cloud.token}`, "Content-Type": "application/json", ...(options && options.headers) },
     });
   }
-  async function idbGet(key) {
-    const db = await idbOpen();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction("handles", "readonly");
-      const req = tx.objectStore("handles").get(key);
-      req.onsuccess = () => resolve(req.result || null);
-      req.onerror = () => reject(req.error);
-    });
-  }
-  async function idbSet(key, value) {
-    const db = await idbOpen();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction("handles", "readwrite");
-      tx.objectStore("handles").put(value, key);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-  }
-  async function idbDelete(key) {
-    const db = await idbOpen();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction("handles", "readwrite");
-      tx.objectStore("handles").delete(key);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
+
+  async function cloudPull() {
+    try {
+      const res = await cloudFetch("/data", { method: "GET" });
+      if (!res.ok) throw new Error("pull failed: " + res.status);
+      return await res.json();
+    } catch (e) {
+      console.error("cloud pull failed", e);
+      return null;
+    }
   }
 
   function summarizeData(data) {
     const b = (data.books || []).length, s = (data.sales || []).length;
     return `${b} book${b === 1 ? "" : "s"}, ${s} sale${s === 1 ? "" : "s"}`;
   }
-  function currentSnapshot() {
-    return { books, sales, locations, settings, expenses, expenseCategories, exportedAt: new Date().toISOString() };
-  }
 
-  async function folderReadFile() {
+  async function cloudPush() {
+    if (!cloud.connected || cloudSyncing) return;
+    cloudSyncing = true;
+    cloudStatus = "syncing";
+    renderCloudStatus();
     try {
-      const fh = await folderHandle.getFileHandle(FOLDER_FILENAME, { create: false });
-      const file = await fh.getFile();
-      const text = await file.text();
-      return text ? JSON.parse(text) : null;
+      const res = await cloudFetch("/data", {
+        method: "PUT",
+        body: JSON.stringify({ data: currentSnapshot(), baseUpdatedAt: cloud.lastKnownUpdatedAt }),
+      });
+      if (res.status === 409) {
+        const body = await res.json();
+        applyImportedData(body.server);
+        cloud.lastKnownUpdatedAt = body.server.updatedAt;
+        cloud.lastSyncAt = Date.now();
+        persistCloudConfig();
+        cloudStatus = "ok";
+        showToast("Synced a change from another device — check your last entry");
+        renderCloudStatus();
+        return;
+      }
+      if (!res.ok) throw new Error("push failed: " + res.status);
+      const body = await res.json();
+      cloud.lastKnownUpdatedAt = body.updatedAt;
+      cloud.lastSyncAt = Date.now();
+      persistCloudConfig();
+      cloudStatus = "ok";
     } catch (e) {
-      return null; // file doesn't exist yet
+      console.error("cloud push failed", e);
+      cloudStatus = "error";
+    } finally {
+      cloudSyncing = false;
+      renderCloudStatus();
     }
   }
-  async function folderWriteFile(data) {
-    const fh = await folderHandle.getFileHandle(FOLDER_FILENAME, { create: true });
-    const writable = await fh.createWritable();
-    await writable.write(JSON.stringify(data, null, 2));
-    await writable.close();
+
+  function triggerCloudSync() {
+    if (!cloud.connected) return;
+    cloudPush();
   }
+
+  async function cloudSyncNow() {
+    if (!cloud.connected) return;
+    cloudStatus = "syncing";
+    renderCloudStatus();
+    const serverData = await cloudPull();
+    if (!serverData) { cloudStatus = "error"; renderCloudStatus(); return; }
+    if (serverData.updatedAt > cloud.lastKnownUpdatedAt) {
+      applyImportedData(serverData);
+      cloud.lastKnownUpdatedAt = serverData.updatedAt;
+    }
+    cloud.lastSyncAt = Date.now();
+    persistCloudConfig();
+    cloudStatus = "ok";
+    renderCloudStatus();
+  }
+
+  function relativeTime(ts) {
+    if (!ts) return "never";
+    const mins = Math.round((Date.now() - ts) / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins} min ago`;
+    const hours = Math.round(mins / 60);
+    if (hours < 24) return `${hours} hr ago`;
+    return `${Math.round(hours / 24)} day(s) ago`;
+  }
+
+  function renderCloudStatus() {
+    const note = document.getElementById("cloud-status-note");
+    const urlInput = document.getElementById("cloud-worker-url");
+    const tokenInput = document.getElementById("cloud-token");
+    const connectBtn = document.getElementById("btn-cloud-connect");
+    const syncNowBtn = document.getElementById("btn-cloud-sync-now");
+    const disconnectBtn = document.getElementById("btn-cloud-disconnect");
+
+    if (document.activeElement !== urlInput) urlInput.value = cloud.workerUrl;
+    if (document.activeElement !== tokenInput) tokenInput.value = cloud.token;
+
+    if (!cloud.workerUrl || !cloud.token) {
+      note.textContent = "Not connected. Enter the same Worker URL and passphrase on every device you want synced together.";
+      connectBtn.hidden = true; syncNowBtn.hidden = true; disconnectBtn.hidden = true;
+      return;
+    }
+    if (!cloud.connected) {
+      note.textContent = "Saved. Tap Connect to join the shared data.";
+      connectBtn.hidden = false; syncNowBtn.hidden = true; disconnectBtn.hidden = true;
+      return;
+    }
+    connectBtn.hidden = true; syncNowBtn.hidden = false; disconnectBtn.hidden = false;
+    const last = `last synced ${relativeTime(cloud.lastSyncAt)}`;
+    if (cloudStatus === "syncing") note.textContent = "Syncing…";
+    else if (cloudStatus === "error") note.textContent = `Sync failed — check your connection and Worker URL. (${last})`;
+    else note.textContent = `Connected — ${last}.`;
+  }
+
+  /* --- first-connect conflict picker --- */
+  const conflictModal = document.getElementById("conflict-modal-backdrop");
+  let conflictResolve = null;
+  function askConflict(cloudData, deviceData) {
+    document.getElementById("conflict-cloud-summary").textContent = summarizeData(cloudData);
+    document.getElementById("conflict-device-summary").textContent = summarizeData(deviceData);
+    conflictModal.hidden = false;
+    return new Promise((resolve) => { conflictResolve = resolve; });
+  }
+  function closeConflictModal(result) {
+    conflictModal.hidden = true;
+    if (conflictResolve) { conflictResolve(result); conflictResolve = null; }
+  }
+  document.getElementById("conflict-use-cloud").addEventListener("click", () => closeConflictModal("cloud"));
+  document.getElementById("conflict-use-device").addEventListener("click", () => closeConflictModal("device"));
+  document.getElementById("conflict-cancel").addEventListener("click", () => closeConflictModal("cancel"));
 
   function applyImportedData(data) {
     books = data.books || [];
@@ -1693,143 +1770,66 @@
     renderInventory(); renderSellForm(); renderSalesLog(); renderExpenses(); renderDashboard(); renderSettings();
   }
 
-  const conflictModal = document.getElementById("conflict-modal-backdrop");
-  let conflictResolve = null;
-  function askConflict(folderData, deviceData) {
-    document.getElementById("conflict-folder-summary").textContent = summarizeData(folderData);
-    document.getElementById("conflict-device-summary").textContent = summarizeData(deviceData);
-    conflictModal.hidden = false;
-    return new Promise((resolve) => { conflictResolve = resolve; });
-  }
-  function closeConflictModal(result) {
-    conflictModal.hidden = true;
-    if (conflictResolve) { conflictResolve(result); conflictResolve = null; }
-  }
-  document.getElementById("conflict-use-folder").addEventListener("click", () => closeConflictModal("folder"));
-  document.getElementById("conflict-use-device").addEventListener("click", () => closeConflictModal("device"));
-  document.getElementById("conflict-cancel").addEventListener("click", () => closeConflictModal("cancel"));
-
-  async function connectFolder() {
-    let handle;
-    try {
-      handle = await window.showDirectoryPicker({ mode: "readwrite" });
-    } catch (e) {
-      return; // user cancelled the picker
+  async function connectCloud() {
+    cloudStatus = "syncing";
+    renderCloudStatus();
+    const serverData = await cloudPull();
+    if (!serverData) {
+      cloudStatus = "error";
+      renderCloudStatus();
+      showToast("Couldn't reach that Worker — check the URL and passphrase");
+      return;
     }
-    const perm = await handle.requestPermission({ mode: "readwrite" });
-    if (perm !== "granted") { showToast("Permission needed to sync this folder"); return; }
 
-    folderHandle = handle;
-    const folderData = await folderReadFile();
     const deviceData = currentSnapshot();
+    const serverHasData = (serverData.books || []).length + (serverData.sales || []).length > 0;
+    const deviceHasData = (deviceData.books || []).length + (deviceData.sales || []).length > 0;
 
-    if (folderData && (folderData.books || []).length + (folderData.sales || []).length > 0) {
-      const choice = await askConflict(folderData, deviceData);
-      if (choice === "cancel") { folderHandle = null; return; }
-      if (choice === "folder") applyImportedData(folderData);
-      else await folderWriteFile(currentSnapshot());
-    } else {
-      await folderWriteFile(deviceData);
+    if (serverHasData && deviceHasData) {
+      const choice = await askConflict(serverData, deviceData);
+      if (choice === "cancel") { cloudStatus = "idle"; renderCloudStatus(); return; }
+      if (choice === "cloud") applyImportedData(serverData);
+    } else if (serverHasData) {
+      applyImportedData(serverData);
     }
 
-    await idbSet("dirHandle", handle);
-    folderConnected = true;
-    folderNeedsReconnect = false;
-    folderLastSyncAt = Date.now();
-    renderFolderStatus();
-    showToast(`Connected to "${handle.name}"`);
+    cloud.lastKnownUpdatedAt = serverData.updatedAt;
+    cloud.connected = true;
+    persistCloudConfig();
+    await cloudPush();
+    showToast("Connected to cloud sync");
   }
 
-  async function syncToFolder() {
-    if (!folderConnected || !folderHandle || folderSyncing) return;
-    folderSyncing = true;
-    try {
-      const perm = await folderHandle.queryPermission({ mode: "readwrite" });
-      if (perm !== "granted") { folderNeedsReconnect = true; renderFolderStatus(); return; }
-      await folderWriteFile(currentSnapshot());
-      folderLastSyncAt = Date.now();
-      folderNeedsReconnect = false;
-    } catch (e) {
-      console.error("folder sync failed", e);
-    } finally {
-      folderSyncing = false;
-      renderFolderStatus();
-    }
-  }
+  document.getElementById("btn-cloud-save").addEventListener("click", () => {
+    const url = document.getElementById("cloud-worker-url").value.trim();
+    const token = document.getElementById("cloud-token").value.trim();
+    if (!url || !token) { showToast("Enter both the Worker URL and passphrase"); return; }
+    cloud.workerUrl = url;
+    cloud.token = token;
+    cloud.connected = false;
+    persistCloudConfig();
+    renderCloudStatus();
+    showToast("Saved — tap Connect to join");
+  });
 
-  async function reconnectFolder() {
-    if (!folderHandle) return;
-    const perm = await folderHandle.requestPermission({ mode: "readwrite" });
-    if (perm === "granted") {
-      folderNeedsReconnect = false;
-      await syncToFolder();
-      showToast("Reconnected");
-    } else {
-      showToast("Permission denied");
-    }
-    renderFolderStatus();
-  }
-
-  async function disconnectFolder() {
-    if (!confirm("Disconnect this folder? It keeps its last synced copy, but new changes will stop saving there.")) return;
-    folderHandle = null;
-    folderConnected = false;
-    folderNeedsReconnect = false;
-    await idbDelete("dirHandle");
-    renderFolderStatus();
+  document.getElementById("btn-cloud-connect").addEventListener("click", connectCloud);
+  document.getElementById("btn-cloud-sync-now").addEventListener("click", cloudSyncNow);
+  document.getElementById("btn-cloud-disconnect").addEventListener("click", () => {
+    if (!confirm("Disconnect cloud sync on this device? Local data stays here; other devices keep syncing with each other.")) return;
+    cloud.connected = false;
+    persistCloudConfig();
+    renderCloudStatus();
     showToast("Disconnected");
-  }
+  });
 
-  function relativeTime(ts) {
-    if (!ts) return "never";
-    const mins = Math.round((Date.now() - ts) / 60000);
-    if (mins < 1) return "just now";
-    if (mins < 60) return `${mins} min ago`;
-    const hours = Math.round(mins / 60);
-    if (hours < 24) return `${hours} hr ago`;
-    return `${Math.round(hours / 24)} day(s) ago`;
-  }
+  setInterval(() => {
+    if (cloud.connected && document.visibilityState === "visible") cloudSyncNow();
+  }, 45000);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && cloud.connected) cloudSyncNow();
+  });
+  renderCloudStatus();
 
-  function renderFolderStatus() {
-    const note = document.getElementById("folder-status-note");
-    const connectBtn = document.getElementById("btn-folder-connect");
-    const reconnectBtn = document.getElementById("btn-folder-reconnect");
-    const disconnectBtn = document.getElementById("btn-folder-disconnect");
-
-    if (!FS_SUPPORTED) {
-      note.textContent = "This browser can't connect a folder — no browser on iPad or iPhone can (Chrome and Edge on iOS are Safari underneath, same limit). Pick a folder inside iCloud Drive from Chrome or Edge on a Mac/PC to sync automatically there. On this device, use Local backup below: Export opens the share sheet so you can save straight into that same iCloud Drive folder, and Import can pick a file back out of it.";
-      connectBtn.hidden = true; reconnectBtn.hidden = true; disconnectBtn.hidden = true;
-      return;
-    }
-    if (!folderConnected) {
-      note.textContent = "Not connected. Pick a folder — ideally inside iCloud Drive — and every change saves there automatically; iCloud syncs it from there.";
-      connectBtn.hidden = false; reconnectBtn.hidden = true; disconnectBtn.hidden = true;
-      return;
-    }
-    connectBtn.hidden = true; disconnectBtn.hidden = false;
-    if (folderNeedsReconnect) {
-      note.textContent = `Connection to "${folderHandle ? folderHandle.name : "your folder"}" needs to be reconfirmed.`;
-      reconnectBtn.hidden = false;
-    } else {
-      note.textContent = `Connected to "${folderHandle ? folderHandle.name : "folder"}" — synced ${relativeTime(folderLastSyncAt)}.`;
-      reconnectBtn.hidden = true;
-    }
-  }
-
-  document.getElementById("btn-folder-connect").addEventListener("click", connectFolder);
-  document.getElementById("btn-folder-reconnect").addEventListener("click", reconnectFolder);
-  document.getElementById("btn-folder-disconnect").addEventListener("click", disconnectFolder);
-
-  (async function tryRestoreFolderConnection() {
-    if (!FS_SUPPORTED) { renderFolderStatus(); return; }
-    const handle = await idbGet("dirHandle");
-    if (!handle) { renderFolderStatus(); return; }
-    folderHandle = handle;
-    const perm = await handle.queryPermission({ mode: "readwrite" });
-    folderConnected = true;
-    folderNeedsReconnect = perm !== "granted";
-    renderFolderStatus();
-  })();
 
 
   /* ---------------- boot ---------------- */

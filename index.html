@@ -480,12 +480,18 @@
       </section>
 
       <section class="panel">
-        <div class="panel-head"><h2>Storage location</h2></div>
-        <p class="field-note" id="folder-status-note">Checking browser support…</p>
-        <div class="btn-row" id="folder-actions">
-          <button class="btn btn-primary" id="btn-folder-connect" hidden>Connect a folder…</button>
-          <button class="btn btn-secondary" id="btn-folder-reconnect" hidden>Reconnect</button>
-          <button class="btn btn-ghost" id="btn-folder-disconnect" hidden>Disconnect</button>
+        <div class="panel-head"><h2>Cloud sync</h2></div>
+        <p class="field-note">Every book, sale, and expense syncs live between every device signed into the same Worker — iPad, iPhone, Mac, any browser. Set this up once per device with the same URL and passphrase.</p>
+        <div id="cloud-setup" class="inline-form">
+          <input type="text" id="cloud-worker-url" placeholder="Worker URL, e.g. https://your-worker.workers.dev" style="min-width:280px" />
+          <input type="text" id="cloud-token" placeholder="Sync passphrase" style="min-width:160px" />
+          <button class="btn btn-secondary" id="btn-cloud-save">Save</button>
+        </div>
+        <p class="field-note" id="cloud-status-note">Not connected.</p>
+        <div class="btn-row" id="cloud-actions" style="margin-top:6px">
+          <button class="btn btn-primary" id="btn-cloud-connect" hidden>Connect</button>
+          <button class="btn btn-secondary" id="btn-cloud-sync-now" hidden>Sync now</button>
+          <button class="btn btn-ghost" id="btn-cloud-disconnect" hidden>Disconnect</button>
         </div>
       </section>
 
@@ -622,11 +628,11 @@
       <h2 id="conflict-modal-title">Which data should we keep?</h2>
     </div>
     <div class="conflict-body">
-      <p class="field-note">This folder already has a different backup than what's on this device. Pick one — the other gets overwritten.</p>
+      <p class="field-note">The cloud already has different data than this device. Pick one — the other gets overwritten.</p>
       <div class="conflict-options">
-        <button type="button" class="conflict-option" id="conflict-use-folder">
-          <strong>Use the folder's data</strong>
-          <span id="conflict-folder-summary">—</span>
+        <button type="button" class="conflict-option" id="conflict-use-cloud">
+          <strong>Use the cloud's data</strong>
+          <span id="conflict-cloud-summary">—</span>
         </button>
         <button type="button" class="conflict-option" id="conflict-use-device">
           <strong>Use this device's data</strong>
