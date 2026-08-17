@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Kasembannakij Stock</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%231f6f5c'/%3E%3Cpath d='M28 26h44a4 4 0 0 1 4 4v44l-8-6-8 6-8-6-8 6-8-6-8 6V30a4 4 0 0 1 4-4z' fill='%23f4f5f1'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div id="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22"><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v17a1 1 0 0 1-1 1H6.5A2.5 2.5 0 0 1 4 18.5v-14z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M4 18.5A2.5 2.5 0 0 1 6.5 16H20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><line x1="8" y1="6" x2="15" y2="6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      </span>
+      <div class="brand-text">
+        <span class="brand-name">Kasembannakij</span>
+        <span class="brand-sub">Stock &amp; Sales</span>
+      </div>
+    </div>
+    <nav class="tabs" id="tabs" role="tablist" aria-label="Sections">
+      <button class="tab" data-view="dashboard" role="tab" aria-selected="true">
+        <svg viewBox="0 0 24 24" width="19" height="19"><rect x="3.5" y="3.5" width="7.2" height="7.2" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="13.3" y="3.5" width="7.2" height="10.4" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="3.5" y="13.3" width="7.2" height="7.2" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="13.3" y="16.5" width="7.2" height="4" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        <span>Dashboard</span>
+      </button>
+      <button class="tab" data-view="inventory" role="tab" aria-selected="false">
+        <svg viewBox="0 0 24 24" width="19" height="19"><path d="M4 5.2A1.7 1.7 0 0 1 5.7 3.5h4.6a1.7 1.7 0 0 1 1.7 1.7v15.3l-3.5-2-3.5 2V5.2z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12.9 4h5.4A1.7 1.7 0 0 1 20 5.7v14.6l-3.5-2-3.6 2V4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" opacity=".55"/></svg>
+        <span>Inventory</span>
+      </button>
+      <button class="tab" data-view="sell" role="tab" aria-selected="false">
+        <svg viewBox="0 0 24 24" width="19" height="19"><circle cx="12" cy="12" r="8.3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 7.8v8.4M9.3 15c0 1 1 1.8 2.7 1.8s2.7-.7 2.7-1.7c0-2.6-5.4-1.2-5.4-3.8 0-1 1-1.7 2.7-1.7s2.6.7 2.7 1.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <span>Record Sale</span>
+      </button>
+      <button class="tab" data-view="sales" role="tab" aria-selected="false">
+        <svg viewBox="0 0 24 24" width="19" height="19"><path d="M4.5 3.8h15v16.4l-2.6-1.7-2.5 1.7-2.4-1.7-2.5 1.7-2.5-1.7-2.5 1.7z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><line x1="7.3" y1="8" x2="16.7" y2="8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><line x1="7.3" y1="11.4" x2="16.7" y2="11.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><line x1="7.3" y1="14.8" x2="13.5" y2="14.8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+        <span>Sales Log</span>
+      </button>
+      <button class="tab" data-view="settings" role="tab" aria-selected="false">
+        <svg viewBox="0 0 24 24" width="19" height="19"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 3.8v2.3M12 17.9v2.3M20.2 12h-2.3M6.1 12H3.8M17.5 6.5l-1.6 1.6M8.1 15.9l-1.6 1.6M17.5 17.5l-1.6-1.6M8.1 8.1 6.5 6.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <span>Settings</span>
+      </button>
+    </nav>
+  </header>
+
+  <main id="views">
+
+    <!-- DASHBOARD -->
+    <section class="view" id="view-dashboard" data-view="dashboard">
+      <div class="view-head">
+        <h1>Overview</h1>
+        <div class="period-picker" id="period-picker">
+          <button data-period="7" class="chip">7 days</button>
+          <button data-period="30" class="chip is-active">30 days</button>
+          <button data-period="90" class="chip">90 days</button>
+          <button data-period="month" class="chip">This month</button>
+          <button data-period="all" class="chip">All time</button>
+        </div>
+      </div>
+
+      <div class="stat-grid" id="stat-grid"></div>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Income</h2>
+          <div class="segmented segmented-sm" id="trend-granularity">
+            <button type="button" class="segmented-btn is-active" data-gran="day">Daily</button>
+            <button type="button" class="segmented-btn" data-gran="month">Monthly</button>
+            <button type="button" class="segmented-btn" data-gran="year">Yearly</button>
+          </div>
+          <span class="panel-hint" id="velocity-hint">—</span>
+        </div>
+        <div id="trend-chart" class="chart-wrap"></div>
+      </section>
+
+      <div class="panel-grid">
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Where we're selling</h2>
+          </div>
+          <div id="location-chart" class="chart-wrap"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Retail vs. wholesale</h2>
+          </div>
+          <div id="mix-chart" class="chart-wrap"></div>
+        </section>
+      </div>
+
+      <div class="panel-grid">
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Best sellers</h2>
+          </div>
+          <div id="top-sellers" class="mini-table"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Reorder watch</h2>
+            <span class="panel-hint">low stock &amp; running out fast</span>
+          </div>
+          <div id="reorder-watch" class="mini-table"></div>
+        </section>
+      </div>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Promotion ideas</h2>
+          <span class="panel-hint">capital sitting still — good candidates for a push</span>
+        </div>
+        <div id="promo-watch" class="mini-table"></div>
+      </section>
+    </section>
+
+    <!-- INVENTORY -->
+    <section class="view" id="view-inventory" data-view="inventory">
+      <div class="view-head">
+        <h1>Inventory</h1>
+        <div class="view-actions">
+          <input type="search" id="inventory-search" class="search-input" placeholder="Search title or author…" />
+          <button class="btn btn-primary" id="btn-add-book">
+            <svg viewBox="0 0 24 24" width="17" height="17"><line x1="12" y1="5" x2="12" y2="19" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/><line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/></svg>
+            Add book
+          </button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table" id="inventory-table">
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Author</th>
+              <th class="num">Price</th>
+              <th class="num">Wholesale</th>
+              <th class="num">Cost</th>
+              <th class="num">Stock</th>
+              <th class="num">Margin/unit</th>
+              <th>Sell rate</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="inventory-tbody"></tbody>
+        </table>
+      </div>
+      <p class="empty-state" id="inventory-empty" hidden>No books yet — add your first title to start tracking stock.</p>
+    </section>
+
+    <!-- RECORD SALE -->
+    <section class="view" id="view-sell" data-view="sell">
+      <div class="view-head">
+        <h1>New order</h1>
+      </div>
+
+      <div class="order-layout">
+        <div class="order-main">
+
+          <section class="panel">
+            <div class="panel-head"><h2>Order details</h2></div>
+            <div class="sell-form order-header-form">
+              <div class="field">
+                <label for="order-customer">Customer <span class="opt">(optional)</span></label>
+                <input type="text" id="order-customer" placeholder="Walk-in" />
+              </div>
+              <div class="field">
+                <label for="order-date">Date</label>
+                <input type="date" id="order-date" required />
+              </div>
+              <div class="field field-wide">
+                <label for="order-location">Where</label>
+                <input list="location-options" id="order-location" placeholder="Storefront, Shopee, Book fair…" required />
+                <datalist id="location-options"></datalist>
+                <p class="field-note" id="order-location-note">&nbsp;</p>
+              </div>
+              <div class="field field-wide">
+                <label for="order-note">Note <span class="opt">(optional)</span></label>
+                <input type="text" id="order-note" placeholder="e.g. gift wrapped, delivery address" />
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head"><h2>Add a book</h2></div>
+            <form class="sell-form" id="line-form" autocomplete="off">
+              <div class="field field-wide">
+                <label>Sale type</label>
+                <div class="segmented" id="sale-type-toggle">
+                  <button type="button" class="segmented-btn is-active" data-type="retail">Retail</button>
+                  <button type="button" class="segmented-btn" data-type="wholesale">Wholesale</button>
+                </div>
+              </div>
+
+              <div class="field field-wide">
+                <label for="sell-book">Book</label>
+                <input list="book-options" id="sell-book" placeholder="Start typing a title…" required />
+                <datalist id="book-options"></datalist>
+                <p class="field-note" id="sell-book-note">&nbsp;</p>
+              </div>
+
+              <div class="field">
+                <label for="sell-qty">Quantity</label>
+                <div class="stepper">
+                  <button type="button" class="stepper-btn" data-step="-1" aria-label="Decrease quantity">−</button>
+                  <input type="number" id="sell-qty" min="1" value="1" inputmode="numeric" required />
+                  <button type="button" class="stepper-btn" data-step="1" aria-label="Increase quantity">+</button>
+                </div>
+              </div>
+
+              <div class="field">
+                <label for="sell-price">Sold at (per unit, ฿)</label>
+                <input type="number" id="sell-price" min="0" step="1" inputmode="decimal" required />
+              </div>
+
+              <div class="form-actions">
+                <button type="submit" class="btn btn-secondary btn-lg">
+                  <svg viewBox="0 0 24 24" width="17" height="17"><line x1="12" y1="5" x2="12" y2="19" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/><line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/></svg>
+                  Add to order
+                </button>
+              </div>
+            </form>
+          </section>
+
+        </div>
+
+        <div class="order-side">
+          <section class="panel order-cart-panel">
+            <div class="panel-head"><h2>This order</h2></div>
+            <div id="order-cart-list" class="order-cart-list"></div>
+            <p class="empty-row" id="order-cart-empty">No items yet — add a book above.</p>
+
+            <div class="sell-summary" id="order-summary">
+              <div><span>Revenue</span><strong id="order-sum-revenue">฿0</strong></div>
+              <div><span>Platform fee</span><strong id="order-sum-commission">฿0</strong></div>
+              <div><span>Cost</span><strong id="order-sum-cost">฿0</strong></div>
+              <div><span>Margin</span><strong id="order-sum-margin">฿0</strong></div>
+            </div>
+
+            <button type="button" class="btn btn-primary btn-lg" id="btn-complete-order">Complete order</button>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <!-- SALES LOG -->
+    <section class="view" id="view-sales" data-view="sales">
+      <div class="view-head">
+        <h1>Sales log</h1>
+        <div class="view-actions">
+          <input type="search" id="sales-search" class="search-input" placeholder="Search title, location, note…" />
+        </div>
+      </div>
+      <div class="order-list" id="order-list"></div>
+      <p class="empty-state" id="sales-empty" hidden>No sales recorded yet.</p>
+    </section>
+
+    <!-- SETTINGS -->
+    <section class="view" id="view-settings" data-view="settings">
+      <div class="view-head">
+        <h1>Settings</h1>
+      </div>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Selling platforms &amp; commission</h2>
+          <span class="panel-hint">tap a fee to edit it — new sales use the current rate</span>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table data-table-compact" id="platform-table">
+            <thead>
+              <tr><th>Platform</th><th class="num">Commission</th><th></th></tr>
+            </thead>
+            <tbody id="platform-tbody"></tbody>
+          </table>
+        </div>
+        <form id="location-form" class="inline-form" style="margin-top:14px">
+          <input type="text" id="new-location" placeholder="Platform name, e.g. Shopee" />
+          <input type="number" id="new-location-commission" placeholder="Commission %" min="0" max="100" step="0.1" style="max-width:9rem" />
+          <button type="submit" class="btn btn-secondary">Add platform</button>
+        </form>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>Low stock alert threshold</h2></div>
+        <div class="inline-form">
+          <input type="number" id="low-stock-threshold" min="0" step="1" style="max-width:8rem" />
+          <span class="field-note">Books at or below this count show up under Reorder watch.</span>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>Backup</h2></div>
+        <p class="field-note">Your data lives in this iPad's browser only. Export a backup regularly, especially before clearing Safari data.</p>
+        <div class="btn-row">
+          <button class="btn btn-secondary" id="btn-export">Export backup (JSON)</button>
+          <button class="btn btn-secondary" id="btn-export-csv">Export sales (CSV)</button>
+          <label class="btn btn-secondary" for="import-file">Import backup
+            <input type="file" id="import-file" accept="application/json" hidden />
+          </label>
+        </div>
+      </section>
+
+      <section class="panel panel-danger">
+        <div class="panel-head"><h2>Reset</h2></div>
+        <p class="field-note">Permanently erase all books and sales on this device.</p>
+        <button class="btn btn-danger" id="btn-reset">Erase all data</button>
+      </section>
+    </section>
+
+  </main>
+</div>
+
+<!-- Book add/edit modal -->
+<div class="modal-backdrop" id="book-modal-backdrop" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="book-modal-title">
+    <div class="modal-head">
+      <h2 id="book-modal-title">Add book</h2>
+      <button class="icon-btn" id="book-modal-close" aria-label="Close">
+        <svg viewBox="0 0 24 24" width="20" height="20"><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <form id="book-form" class="modal-form">
+      <input type="hidden" id="book-id" />
+      <div class="field field-wide">
+        <label for="book-title">Title</label>
+        <input type="text" id="book-title" required />
+      </div>
+      <div class="field field-wide">
+        <label for="book-author">Author</label>
+        <input type="text" id="book-author" required />
+      </div>
+      <div class="field">
+        <label for="book-price">Retail price (฿)</label>
+        <input type="number" id="book-price" min="0" step="1" required />
+      </div>
+      <div class="field">
+        <label for="book-wholesale">Wholesale price (฿)</label>
+        <input type="number" id="book-wholesale" min="0" step="1" />
+      </div>
+      <div class="field">
+        <label for="book-cost">Cost per unit (฿)</label>
+        <input type="number" id="book-cost" min="0" step="1" required />
+      </div>
+      <div class="field">
+        <label for="book-stock">Current stock</label>
+        <input type="number" id="book-stock" min="0" step="1" required />
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="book-archive-btn" hidden>Archive</button>
+        <div class="modal-actions-right">
+          <button type="button" class="btn btn-ghost" id="book-modal-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save book</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Sale edit modal -->
+<div class="modal-backdrop" id="sale-modal-backdrop" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="sale-modal-title">
+    <div class="modal-head">
+      <h2 id="sale-modal-title">Edit sale</h2>
+      <button class="icon-btn" id="sale-modal-close" aria-label="Close">
+        <svg viewBox="0 0 24 24" width="20" height="20"><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <form id="sale-form" class="modal-form">
+      <input type="hidden" id="sale-id" />
+      <div class="field field-wide">
+        <label for="sale-edit-book-label">Book</label>
+        <div class="static-value" id="sale-edit-book-label">—</div>
+      </div>
+      <div class="field field-wide">
+        <label>Sale type</label>
+        <div class="segmented" id="sale-edit-type-toggle">
+          <button type="button" class="segmented-btn is-active" data-type="retail">Retail</button>
+          <button type="button" class="segmented-btn" data-type="wholesale">Wholesale</button>
+        </div>
+      </div>
+      <div class="field">
+        <label for="sale-edit-qty">Quantity</label>
+        <input type="number" id="sale-edit-qty" min="1" step="1" required />
+      </div>
+      <div class="field">
+        <label for="sale-edit-price">Unit price (฿)</label>
+        <input type="number" id="sale-edit-price" min="0" step="1" required />
+      </div>
+      <div class="field">
+        <label for="sale-edit-date">Date</label>
+        <input type="date" id="sale-edit-date" required />
+      </div>
+      <div class="field">
+        <label for="sale-edit-location">Where</label>
+        <input list="location-options" id="sale-edit-location" required />
+      </div>
+      <div class="field field-wide">
+        <label for="sale-edit-customer">Customer <span class="opt">(optional)</span></label>
+        <input type="text" id="sale-edit-customer" placeholder="Walk-in" />
+      </div>
+      <div class="field field-wide">
+        <label for="sale-edit-note">Note</label>
+        <input type="text" id="sale-edit-note" />
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-danger-ghost" id="sale-delete-btn">Delete sale</button>
+        <div class="modal-actions-right">
+          <button type="button" class="btn btn-ghost" id="sale-modal-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save changes</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>
