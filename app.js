@@ -32,15 +32,6 @@
     { id: uid(), name: "Consignment", commissionPct: 0 },
   ];
 
-  const LS_CLOUD = "kbnk.cloud.v1";
-  const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
-  const DRIVE_FILENAME = "kasembannakij-backup.json";
-  let cloud = load(LS_CLOUD, { clientId: "", fileId: "", connected: false, lastBackupAt: 0 });
-  let driveTokenClient = null;
-  let driveAccessToken = "";
-  let driveTokenExpiresAt = 0;
-  let driveStatus = "idle"; // idle | syncing | ok | error | needs-reconnect
-
   let books = load(LS_BOOKS, []);
   let sales = load(LS_SALES, []);
   const locationsIsFresh = localStorage.getItem(LS_LOCATIONS) === null;
@@ -63,10 +54,10 @@
   });
   if (salesMigrated) save(LS_SALES, sales);
 
-  function persistBooks() { save(LS_BOOKS, books); scheduleCloudBackup(); }
-  function persistSales() { save(LS_SALES, sales); scheduleCloudBackup(); }
-  function persistLocations() { save(LS_LOCATIONS, locations); scheduleCloudBackup(); }
-  function persistSettings() { save(LS_SETTINGS, settings); scheduleCloudBackup(); }
+  function persistBooks() { save(LS_BOOKS, books); syncToFolder(); }
+  function persistSales() { save(LS_SALES, sales); syncToFolder(); }
+  function persistLocations() { save(LS_LOCATIONS, locations); syncToFolder(); }
+  function persistSettings() { save(LS_SETTINGS, settings); syncToFolder(); }
 
   function locationByName(name) {
     const v = (name || "").trim().toLowerCase();
@@ -757,81 +748,134 @@
      SALES LOG
   ============================================================ */
   let salesQuery = "";
+  let salesSortKey = "date";
+  let salesSortDir = "desc";
+  const SALES_TEXT_COLS = new Set(["customer", "bookTitle", "saleType", "location"]);
+
   document.getElementById("sales-search").addEventListener("input", (e) => {
     salesQuery = e.target.value.trim().toLowerCase();
     renderSalesLog();
   });
+  document.getElementById("sales-filter-type").addEventListener("change", renderSalesLog);
+  document.getElementById("sales-filter-location").addEventListener("change", renderSalesLog);
+  document.getElementById("sales-filter-from").addEventListener("change", renderSalesLog);
+  document.getElementById("sales-filter-to").addEventListener("change", renderSalesLog);
+  document.getElementById("btn-sales-clear-filters").addEventListener("click", () => {
+    salesQuery = "";
+    document.getElementById("sales-search").value = "";
+    document.getElementById("sales-filter-type").value = "";
+    document.getElementById("sales-filter-location").value = "";
+    document.getElementById("sales-filter-from").value = "";
+    document.getElementById("sales-filter-to").value = "";
+    renderSalesLog();
+  });
+  document.querySelector("#sales-table thead").addEventListener("click", (e) => {
+    const th = e.target.closest("th[data-sort]");
+    if (!th) return;
+    const key = th.dataset.sort;
+    if (salesSortKey === key) {
+      salesSortDir = salesSortDir === "asc" ? "desc" : "asc";
+    } else {
+      salesSortKey = key;
+      salesSortDir = SALES_TEXT_COLS.has(key) ? "asc" : "desc";
+    }
+    renderSalesLog();
+  });
 
-  function renderSalesLog() {
-    const list = document.getElementById("order-list");
-    const filtered = [...sales]
-      .filter((s) => !salesQuery || [s.bookTitle, s.location, s.note, s.customer].join(" ").toLowerCase().includes(salesQuery));
-
-    document.getElementById("sales-empty").hidden = sales.length !== 0;
-
-    const orderMap = new Map();
-    filtered.forEach((s) => {
-      if (!orderMap.has(s.orderId)) orderMap.set(s.orderId, []);
-      orderMap.get(s.orderId).push(s);
+  function orderNumberMap() {
+    const firstSeen = new Map();
+    sales.forEach((s) => {
+      const key = s.date + String(s.createdAt).padStart(14, "0");
+      if (!firstSeen.has(s.orderId) || key < firstSeen.get(s.orderId)) firstSeen.set(s.orderId, key);
     });
-    const orders = [...orderMap.values()].sort((a, b) => {
-      const am = a[0], bm = b[0];
-      return (bm.date + bm.createdAt).localeCompare(am.date + am.createdAt);
-    });
-
-    list.innerHTML = orders.map((items) => {
-      const first = items[0];
-      const revenue = items.reduce((s, x) => s + saleRevenue(x), 0);
-      const margin = items.reduce((s, x) => s + saleMargin(x), 0);
-      const totalQty = items.reduce((s, x) => s + x.qty, 0);
-      return `
-      <div class="order-card" data-order-id="${first.orderId}">
-        <div class="order-card-head">
-          <div>
-            <div class="order-card-id">${first.customer ? escapeHtml(first.customer) : "Walk-in"}</div>
-            <div class="order-card-sub">${first.date} · ${escapeHtml(first.location)} · ${totalQty} item${totalQty === 1 ? "" : "s"}</div>
-          </div>
-          <div class="order-card-spacer"></div>
-          <div class="order-card-totals">
-            <strong>${fmtMoney(revenue)}</strong>
-            <span>${fmtMoneySigned(margin)} margin</span>
-          </div>
-          <button class="icon-btn" data-action="delete-order" data-order-id="${first.orderId}" aria-label="Delete order">
-            <svg viewBox="0 0 24 24" width="15" height="15"><path d="M5 7h14M10 7V5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2m4 0-.8 12.3a2 2 0 0 1-2 1.7H7.8a2 2 0 0 1-2-1.7L5 7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </button>
-        </div>
-        <div class="order-card-items">
-          ${items.map((s) => `
-            <div class="order-line">
-              <span class="ol-title">${escapeHtml(s.bookTitle)} <span class="badge ${s.saleType === "wholesale" ? "badge-warn" : "badge-good"}">${s.saleType === "wholesale" ? "Wholesale" : "Retail"}</span></span>
-              <span class="ol-qty">${s.qty} × ${fmtMoney(s.unitPrice)}</span>
-              <span class="ol-revenue">${fmtMoney(saleRevenue(s))}</span>
-              <span class="ol-fee">${s.commissionPct ? "fee " + fmtMoney(saleCommission(s)) : ""}</span>
-              <span class="ol-margin">${fmtMoneySigned(saleMargin(s))}</span>
-              <button class="row-btn ol-edit" data-action="edit-sale" data-id="${s.id}">Edit</button>
-            </div>`).join("")}
-        </div>
-        ${first.note ? `<div class="order-card-note">${escapeHtml(first.note)}</div>` : ""}
-      </div>`;
-    }).join("");
+    const orderedIds = [...firstSeen.entries()].sort((a, b) => a[1].localeCompare(b[1])).map(([id]) => id);
+    const map = new Map();
+    orderedIds.forEach((id, i) => map.set(id, i + 1));
+    return map;
   }
 
-  document.getElementById("order-list").addEventListener("click", (e) => {
-    const editBtn = e.target.closest("[data-action='edit-sale']");
-    if (editBtn) { openSaleModal(editBtn.dataset.id); return; }
-    const delBtn = e.target.closest("[data-action='delete-order']");
-    if (delBtn) {
-      const orderId = delBtn.dataset.orderId;
-      const items = sales.filter((s) => s.orderId === orderId);
-      if (!confirm(`Delete this whole order (${items.length} item${items.length === 1 ? "" : "s"})? Stock will be restored.`)) return;
-      items.forEach((s) => { const book = bookById(s.bookId); if (book) book.stock += s.qty; });
-      sales = sales.filter((s) => s.orderId !== orderId);
-      persistSales();
-      persistBooks();
-      renderSalesLog();
-      renderInventory();
-      showToast("Order deleted, stock restored");
+  function renderSalesLog() {
+    const tbody = document.getElementById("sales-tbody");
+    document.getElementById("sales-empty").hidden = sales.length !== 0;
+
+    const locSelect = document.getElementById("sales-filter-location");
+    if (locSelect.dataset.optionsFor !== String(locations.length)) {
+      locSelect.innerHTML = `<option value="">All locations</option>` +
+        locations.map((l) => `<option value="${escapeHtml(l.name)}">${escapeHtml(l.name)}</option>`).join("");
+      locSelect.dataset.optionsFor = String(locations.length);
     }
+
+    const typeFilter = document.getElementById("sales-filter-type").value;
+    const locFilter = document.getElementById("sales-filter-location").value;
+    const fromFilter = document.getElementById("sales-filter-from").value;
+    const toFilter = document.getElementById("sales-filter-to").value;
+    const orderNums = orderNumberMap();
+
+    let rows = sales
+      .filter((s) => !salesQuery || [s.bookTitle, s.location, s.note, s.customer].join(" ").toLowerCase().includes(salesQuery))
+      .filter((s) => !typeFilter || (s.saleType || "retail") === typeFilter)
+      .filter((s) => !locFilter || s.location === locFilter)
+      .filter((s) => !fromFilter || s.date >= fromFilter)
+      .filter((s) => !toFilter || s.date <= toFilter)
+      .map((s) => ({
+        s, orderNum: orderNums.get(s.orderId) || 0,
+        revenue: saleRevenue(s), fee: saleCommission(s), margin: saleMargin(s),
+      }));
+
+    rows.sort((a, b) => {
+      let av, bv;
+      switch (salesSortKey) {
+        case "orderNum": av = a.orderNum; bv = b.orderNum; break;
+        case "date": av = a.s.date + a.s.createdAt; bv = b.s.date + b.s.createdAt; break;
+        case "customer": av = (a.s.customer || "").toLowerCase(); bv = (b.s.customer || "").toLowerCase(); break;
+        case "bookTitle": av = a.s.bookTitle.toLowerCase(); bv = b.s.bookTitle.toLowerCase(); break;
+        case "saleType": av = a.s.saleType || "retail"; bv = b.s.saleType || "retail"; break;
+        case "qty": av = a.s.qty; bv = b.s.qty; break;
+        case "unitPrice": av = a.s.unitPrice; bv = b.s.unitPrice; break;
+        case "revenue": av = a.revenue; bv = b.revenue; break;
+        case "fee": av = a.fee; bv = b.fee; break;
+        case "margin": av = a.margin; bv = b.margin; break;
+        case "location": av = a.s.location.toLowerCase(); bv = b.s.location.toLowerCase(); break;
+        default: av = a.s.date; bv = b.s.date;
+      }
+      const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+      return salesSortDir === "asc" ? cmp : -cmp;
+    });
+
+    document.querySelectorAll("#sales-table th[data-sort]").forEach((th) => {
+      const active = th.dataset.sort === salesSortKey;
+      th.classList.toggle("is-sorted", active);
+      th.innerHTML = th.textContent.replace(/\s*[▲▼]?\s*$/, "") +
+        (active ? `<span class="sort-arrow">${salesSortDir === "asc" ? "▲" : "▼"}</span>` : "");
+    });
+
+    const totalRevenue = rows.reduce((sum, r) => sum + r.revenue, 0);
+    const totalMargin = rows.reduce((sum, r) => sum + r.margin, 0);
+    document.getElementById("sales-log-summary").innerHTML = sales.length
+      ? `<span><strong>${rows.length}</strong> row${rows.length === 1 ? "" : "s"}</span><span><strong>${fmtMoney(totalRevenue)}</strong> revenue</span><span><strong>${fmtMoneySigned(totalMargin)}</strong> margin</span>`
+      : "";
+
+    tbody.innerHTML = rows.map(({ s, orderNum, revenue, fee, margin }) => `
+      <tr data-id="${s.id}">
+        <td><span class="order-num-badge">#${orderNum}</span></td>
+        <td>${s.date}</td>
+        <td>${escapeHtml(s.customer || "Walk-in")}</td>
+        <td class="title-cell">${escapeHtml(s.bookTitle)}</td>
+        <td><span class="badge ${s.saleType === "wholesale" ? "badge-warn" : "badge-good"}">${s.saleType === "wholesale" ? "Wholesale" : "Retail"}</span></td>
+        <td class="num">${s.qty}</td>
+        <td class="num">${fmtMoney(s.unitPrice)}</td>
+        <td class="num">${fmtMoney(revenue)}</td>
+        <td class="num">${s.commissionPct ? fmtMoney(fee) : "—"}</td>
+        <td class="num">${fmtMoneySigned(margin)}</td>
+        <td>${escapeHtml(s.location)}</td>
+        <td>${escapeHtml(s.note || "")}</td>
+        <td><button class="row-btn" data-action="edit-sale" data-id="${s.id}">Edit</button></td>
+      </tr>`).join("");
+  }
+
+  document.getElementById("sales-tbody").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-action='edit-sale']");
+    if (btn) openSaleModal(btn.dataset.id);
   });
 
   /* --- sale edit modal --- */
@@ -933,7 +977,7 @@
       </tr>`).join("");
     document.getElementById("low-stock-threshold").value = settings.lowStockThreshold;
     refreshLocationOptions();
-    renderDriveStatus();
+    renderFolderStatus();
   }
 
   document.getElementById("platform-tbody").addEventListener("click", (e) => {
@@ -1203,119 +1247,183 @@
   });
 
   /* ============================================================
-     GOOGLE DRIVE AUTO-BACKUP
+     STORAGE LOCATION — folder sync via File System Access API
+     (point it at a folder inside iCloud Drive / Dropbox / etc. —
+     the OS syncs the folder, this code only ever touches a local file)
   ============================================================ */
-  function persistCloud() { save(LS_CLOUD, cloud); }
+  const FOLDER_FILENAME = "kasembannakij-data.json";
+  const FS_SUPPORTED = typeof window.showDirectoryPicker === "function";
 
-  function driveWaitForGis(timeoutMs = 10000) {
-    return new Promise((resolve) => {
-      const start = Date.now();
-      (function poll() {
-        if (window.google && window.google.accounts && window.google.accounts.oauth2) { resolve(true); return; }
-        if (Date.now() - start > timeoutMs) { resolve(false); return; }
-        setTimeout(poll, 250);
-      })();
+  let folderHandle = null;
+  let folderConnected = false;
+  let folderNeedsReconnect = false;
+  let folderLastSyncAt = 0;
+  let folderSyncing = false;
+
+  function idbOpen() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open("kbnk-fs", 1);
+      req.onupgradeneeded = () => req.result.createObjectStore("handles");
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function idbGet(key) {
+    const db = await idbOpen();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction("handles", "readonly");
+      const req = tx.objectStore("handles").get(key);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function idbSet(key, value) {
+    const db = await idbOpen();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction("handles", "readwrite");
+      tx.objectStore("handles").put(value, key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+  async function idbDelete(key) {
+    const db = await idbOpen();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction("handles", "readwrite");
+      tx.objectStore("handles").delete(key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
     });
   }
 
-  async function driveInitTokenClient() {
-    if (!cloud.clientId) return false;
-    const ready = await driveWaitForGis();
-    if (!ready) return false;
-    if (!driveTokenClient) {
-      driveTokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: cloud.clientId,
-        scope: DRIVE_SCOPE,
-        callback: () => {}, // overridden per-request in driveEnsureToken
-      });
-    }
-    return true;
+  function summarizeData(data) {
+    const b = (data.books || []).length, s = (data.sales || []).length;
+    return `${b} book${b === 1 ? "" : "s"}, ${s} sale${s === 1 ? "" : "s"}`;
+  }
+  function currentSnapshot() {
+    return { books, sales, locations, settings, exportedAt: new Date().toISOString() };
   }
 
-  function driveEnsureToken(interactive) {
-    return new Promise((resolve) => {
-      if (!driveTokenClient) { resolve(false); return; }
-      if (driveAccessToken && driveTokenExpiresAt > Date.now() + 30000) { resolve(true); return; }
-      let settled = false;
-      driveTokenClient.callback = (resp) => {
-        if (settled) return;
-        settled = true;
-        if (resp && resp.access_token) {
-          driveAccessToken = resp.access_token;
-          driveTokenExpiresAt = Date.now() + (resp.expires_in || 3000) * 1000;
-          resolve(true);
-        } else {
-          resolve(false);
-        }
-      };
-      driveTokenClient.error_callback = () => { if (!settled) { settled = true; resolve(false); } };
-      setTimeout(() => { if (!settled) { settled = true; resolve(false); } }, 12000);
-      try {
-        driveTokenClient.requestAccessToken({ prompt: interactive ? "consent" : "" });
-      } catch (e) {
-        if (!settled) { settled = true; resolve(false); }
-      }
-    });
-  }
-
-  async function driveApiFetch(url, options) {
-    const res = await fetch(url, {
-      ...options,
-      headers: { Authorization: `Bearer ${driveAccessToken}`, ...(options && options.headers) },
-    });
-    if (!res.ok) throw new Error(`Drive API ${res.status}`);
-    return res;
-  }
-
-  async function driveEnsureFile() {
-    if (cloud.fileId) return cloud.fileId;
-    const res = await driveApiFetch("https://www.googleapis.com/drive/v3/files", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: DRIVE_FILENAME }),
-    });
-    const data = await res.json();
-    cloud.fileId = data.id;
-    persistCloud();
-    return cloud.fileId;
-  }
-
-  async function driveUploadBackup() {
-    const payload = { books, sales, locations, settings, exportedAt: new Date().toISOString() };
-    const fileId = await driveEnsureFile();
-    await driveApiFetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload, null, 2),
-    });
-  }
-
-  async function driveBackupNow(interactive) {
-    if (!cloud.connected && !interactive) return;
-    driveStatus = "syncing";
-    renderDriveStatus();
-    const ok = await driveEnsureToken(interactive);
-    if (!ok) {
-      driveStatus = cloud.connected ? "needs-reconnect" : "error";
-      renderDriveStatus();
-      return;
-    }
+  async function folderReadFile() {
     try {
-      await driveUploadBackup();
-      cloud.connected = true;
-      cloud.lastBackupAt = Date.now();
-      persistCloud();
-      driveStatus = "ok";
+      const fh = await folderHandle.getFileHandle(FOLDER_FILENAME, { create: false });
+      const file = await fh.getFile();
+      const text = await file.text();
+      return text ? JSON.parse(text) : null;
     } catch (e) {
-      console.error("Drive backup failed", e);
-      driveStatus = "error";
+      return null; // file doesn't exist yet
     }
-    renderDriveStatus();
+  }
+  async function folderWriteFile(data) {
+    const fh = await folderHandle.getFileHandle(FOLDER_FILENAME, { create: true });
+    const writable = await fh.createWritable();
+    await writable.write(JSON.stringify(data, null, 2));
+    await writable.close();
   }
 
-  function scheduleCloudBackup() {
-    if (!cloud.connected || !cloud.clientId) return;
-    driveBackupNow(false);
+  function applyImportedData(data) {
+    books = data.books || [];
+    sales = data.sales || [];
+    locations = Array.isArray(data.locations) ? data.locations : locations;
+    if (locations.length && typeof locations[0] === "string") {
+      locations = locations.map((name) => ({ id: uid(), name, commissionPct: 0 }));
+    }
+    sales.forEach((s) => {
+      if (!s.saleType) s.saleType = "retail";
+      if (typeof s.commissionPct !== "number") s.commissionPct = 0;
+      if (!s.orderId) s.orderId = s.id;
+      if (typeof s.customer !== "string") s.customer = "";
+    });
+    settings = data.settings || settings;
+    save(LS_BOOKS, books); save(LS_SALES, sales); save(LS_LOCATIONS, locations); save(LS_SETTINGS, settings);
+    renderInventory(); renderSellForm(); renderSalesLog(); renderDashboard(); renderSettings();
+  }
+
+  const conflictModal = document.getElementById("conflict-modal-backdrop");
+  let conflictResolve = null;
+  function askConflict(folderData, deviceData) {
+    document.getElementById("conflict-folder-summary").textContent = summarizeData(folderData);
+    document.getElementById("conflict-device-summary").textContent = summarizeData(deviceData);
+    conflictModal.hidden = false;
+    return new Promise((resolve) => { conflictResolve = resolve; });
+  }
+  function closeConflictModal(result) {
+    conflictModal.hidden = true;
+    if (conflictResolve) { conflictResolve(result); conflictResolve = null; }
+  }
+  document.getElementById("conflict-use-folder").addEventListener("click", () => closeConflictModal("folder"));
+  document.getElementById("conflict-use-device").addEventListener("click", () => closeConflictModal("device"));
+  document.getElementById("conflict-cancel").addEventListener("click", () => closeConflictModal("cancel"));
+
+  async function connectFolder() {
+    let handle;
+    try {
+      handle = await window.showDirectoryPicker({ mode: "readwrite" });
+    } catch (e) {
+      return; // user cancelled the picker
+    }
+    const perm = await handle.requestPermission({ mode: "readwrite" });
+    if (perm !== "granted") { showToast("Permission needed to sync this folder"); return; }
+
+    folderHandle = handle;
+    const folderData = await folderReadFile();
+    const deviceData = currentSnapshot();
+
+    if (folderData && (folderData.books || []).length + (folderData.sales || []).length > 0) {
+      const choice = await askConflict(folderData, deviceData);
+      if (choice === "cancel") { folderHandle = null; return; }
+      if (choice === "folder") applyImportedData(folderData);
+      else await folderWriteFile(currentSnapshot());
+    } else {
+      await folderWriteFile(deviceData);
+    }
+
+    await idbSet("dirHandle", handle);
+    folderConnected = true;
+    folderNeedsReconnect = false;
+    folderLastSyncAt = Date.now();
+    renderFolderStatus();
+    showToast(`Connected to "${handle.name}"`);
+  }
+
+  async function syncToFolder() {
+    if (!folderConnected || !folderHandle || folderSyncing) return;
+    folderSyncing = true;
+    try {
+      const perm = await folderHandle.queryPermission({ mode: "readwrite" });
+      if (perm !== "granted") { folderNeedsReconnect = true; renderFolderStatus(); return; }
+      await folderWriteFile(currentSnapshot());
+      folderLastSyncAt = Date.now();
+      folderNeedsReconnect = false;
+    } catch (e) {
+      console.error("folder sync failed", e);
+    } finally {
+      folderSyncing = false;
+      renderFolderStatus();
+    }
+  }
+
+  async function reconnectFolder() {
+    if (!folderHandle) return;
+    const perm = await folderHandle.requestPermission({ mode: "readwrite" });
+    if (perm === "granted") {
+      folderNeedsReconnect = false;
+      await syncToFolder();
+      showToast("Reconnected");
+    } else {
+      showToast("Permission denied");
+    }
+    renderFolderStatus();
+  }
+
+  async function disconnectFolder() {
+    if (!confirm("Disconnect this folder? It keeps its last synced copy, but new changes will stop saving there.")) return;
+    folderHandle = null;
+    folderConnected = false;
+    folderNeedsReconnect = false;
+    await idbDelete("dirHandle");
+    renderFolderStatus();
+    showToast("Disconnected");
   }
 
   function relativeTime(ts) {
@@ -1328,65 +1436,47 @@
     return `${Math.round(hours / 24)} day(s) ago`;
   }
 
-  function renderDriveStatus() {
-    const note = document.getElementById("drive-status-note");
-    const idInput = document.getElementById("drive-client-id");
-    const connectBtn = document.getElementById("btn-drive-connect");
-    const backupBtn = document.getElementById("btn-drive-backup-now");
-    const disconnectBtn = document.getElementById("btn-drive-disconnect");
+  function renderFolderStatus() {
+    const note = document.getElementById("folder-status-note");
+    const connectBtn = document.getElementById("btn-folder-connect");
+    const reconnectBtn = document.getElementById("btn-folder-reconnect");
+    const disconnectBtn = document.getElementById("btn-folder-disconnect");
 
-    if (document.activeElement !== idInput) idInput.value = cloud.clientId;
-
-    if (!cloud.clientId) {
-      note.textContent = "Not connected. Paste your Google OAuth Client ID above, save it, then connect.";
-      connectBtn.hidden = true; backupBtn.hidden = true; disconnectBtn.hidden = true;
+    if (!FS_SUPPORTED) {
+      note.textContent = "This browser can't connect a folder (only Chrome or Edge on a Mac/PC support it). Pick a folder inside iCloud Drive from one of those to sync automatically — on this browser, use Local backup below instead.";
+      connectBtn.hidden = true; reconnectBtn.hidden = true; disconnectBtn.hidden = true;
       return;
     }
-    if (!cloud.connected) {
-      note.textContent = "Client ID saved. Tap Connect to sign in and start auto-backing-up to Google Drive.";
-      connectBtn.hidden = false; backupBtn.hidden = true; disconnectBtn.hidden = true;
+    if (!folderConnected) {
+      note.textContent = "Not connected. Pick a folder — ideally inside iCloud Drive — and every change saves there automatically; iCloud syncs it from there.";
+      connectBtn.hidden = false; reconnectBtn.hidden = true; disconnectBtn.hidden = true;
       return;
     }
-    connectBtn.hidden = true; backupBtn.hidden = false; disconnectBtn.hidden = false;
-    const last = `last backup ${relativeTime(cloud.lastBackupAt)}`;
-    if (driveStatus === "syncing") note.textContent = `Backing up to Google Drive…`;
-    else if (driveStatus === "error") note.textContent = `Backup failed — check your connection. (${last})`;
-    else if (driveStatus === "needs-reconnect") note.textContent = `Sign-in expired — tap "Back up now" to reconnect. (${last})`;
-    else note.textContent = `Connected to Google Drive — ${last}.`;
+    connectBtn.hidden = true; disconnectBtn.hidden = false;
+    if (folderNeedsReconnect) {
+      note.textContent = `Connection to "${folderHandle ? folderHandle.name : "your folder"}" needs to be reconfirmed.`;
+      reconnectBtn.hidden = false;
+    } else {
+      note.textContent = `Connected to "${folderHandle ? folderHandle.name : "folder"}" — synced ${relativeTime(folderLastSyncAt)}.`;
+      reconnectBtn.hidden = true;
+    }
   }
 
-  document.getElementById("btn-drive-save-id").addEventListener("click", async () => {
-    const val = document.getElementById("drive-client-id").value.trim();
-    if (!val) return;
-    cloud.clientId = val;
-    persistCloud();
-    driveTokenClient = null;
-    const ok = await driveInitTokenClient();
-    if (!ok) showToast("Couldn't load Google sign-in — check your connection");
-    renderDriveStatus();
-  });
+  document.getElementById("btn-folder-connect").addEventListener("click", connectFolder);
+  document.getElementById("btn-folder-reconnect").addEventListener("click", reconnectFolder);
+  document.getElementById("btn-folder-disconnect").addEventListener("click", disconnectFolder);
 
-  document.getElementById("btn-drive-connect").addEventListener("click", async () => {
-    await driveInitTokenClient();
-    await driveBackupNow(true);
-    if (cloud.connected) showToast("Connected to Google Drive");
-  });
+  (async function tryRestoreFolderConnection() {
+    if (!FS_SUPPORTED) { renderFolderStatus(); return; }
+    const handle = await idbGet("dirHandle");
+    if (!handle) { renderFolderStatus(); return; }
+    folderHandle = handle;
+    const perm = await handle.queryPermission({ mode: "readwrite" });
+    folderConnected = true;
+    folderNeedsReconnect = perm !== "granted";
+    renderFolderStatus();
+  })();
 
-  document.getElementById("btn-drive-backup-now").addEventListener("click", async () => {
-    await driveInitTokenClient();
-    await driveBackupNow(true);
-  });
-
-  document.getElementById("btn-drive-disconnect").addEventListener("click", () => {
-    if (!confirm("Disconnect Google Drive backup? Local data is unaffected.")) return;
-    cloud.connected = false;
-    driveAccessToken = "";
-    persistCloud();
-    renderDriveStatus();
-    showToast("Disconnected from Google Drive");
-  });
-
-  if (cloud.clientId) driveInitTokenClient();
 
   /* ---------------- boot ---------------- */
   setView("dashboard");

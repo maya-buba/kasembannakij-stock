@@ -9,7 +9,6 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css" />
-<script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
 
@@ -253,11 +252,50 @@
     <section class="view" id="view-sales" data-view="sales">
       <div class="view-head">
         <h1>Sales log</h1>
-        <div class="view-actions">
-          <input type="search" id="sales-search" class="search-input" placeholder="Search title, location, note…" />
-        </div>
       </div>
-      <div class="order-list" id="order-list"></div>
+
+      <div class="log-filters">
+        <input type="search" id="sales-search" class="search-input" placeholder="Search title, customer, note…" />
+        <select id="sales-filter-type" class="filter-select">
+          <option value="">All types</option>
+          <option value="retail">Retail</option>
+          <option value="wholesale">Wholesale</option>
+        </select>
+        <select id="sales-filter-location" class="filter-select">
+          <option value="">All locations</option>
+        </select>
+        <div class="filter-date-group">
+          <input type="date" id="sales-filter-from" aria-label="From date" />
+          <span>–</span>
+          <input type="date" id="sales-filter-to" aria-label="To date" />
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" id="btn-sales-clear-filters">Clear filters</button>
+      </div>
+
+      <div class="log-summary" id="sales-log-summary"></div>
+
+      <div class="table-wrap">
+        <table class="data-table" id="sales-table">
+          <thead>
+            <tr>
+              <th data-sort="orderNum">Order</th>
+              <th data-sort="date">Date</th>
+              <th data-sort="customer">Customer</th>
+              <th data-sort="bookTitle">Title</th>
+              <th data-sort="saleType">Type</th>
+              <th class="num" data-sort="qty">Qty</th>
+              <th class="num" data-sort="unitPrice">Unit price</th>
+              <th class="num" data-sort="revenue">Revenue</th>
+              <th class="num" data-sort="fee">Fee</th>
+              <th class="num" data-sort="margin">Margin</th>
+              <th data-sort="location">Where</th>
+              <th>Note</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="sales-tbody"></tbody>
+        </table>
+      </div>
       <p class="empty-state" id="sales-empty" hidden>No sales recorded yet.</p>
     </section>
 
@@ -329,16 +367,12 @@
       </section>
 
       <section class="panel">
-        <div class="panel-head"><h2>Cloud backup</h2></div>
-        <p class="field-note" id="drive-status-note">Not connected. Connect Google Drive to back up automatically after every change.</p>
-        <div id="drive-setup" class="inline-form">
-          <input type="text" id="drive-client-id" placeholder="Google OAuth Client ID (ends in .apps.googleusercontent.com)" style="min-width:280px" />
-          <button class="btn btn-secondary" id="btn-drive-save-id">Save</button>
-        </div>
-        <div class="btn-row" id="drive-actions" style="margin-top:10px">
-          <button class="btn btn-primary" id="btn-drive-connect" hidden>Connect Google Drive</button>
-          <button class="btn btn-secondary" id="btn-drive-backup-now" hidden>Back up now</button>
-          <button class="btn btn-ghost" id="btn-drive-disconnect" hidden>Disconnect</button>
+        <div class="panel-head"><h2>Storage location</h2></div>
+        <p class="field-note" id="folder-status-note">Checking browser support…</p>
+        <div class="btn-row" id="folder-actions">
+          <button class="btn btn-primary" id="btn-folder-connect" hidden>Connect a folder…</button>
+          <button class="btn btn-secondary" id="btn-folder-reconnect" hidden>Reconnect</button>
+          <button class="btn btn-ghost" id="btn-folder-disconnect" hidden>Disconnect</button>
         </div>
       </section>
 
@@ -464,6 +498,33 @@
         </div>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- Storage location conflict modal -->
+<div class="modal-backdrop" id="conflict-modal-backdrop" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="conflict-modal-title">
+    <div class="modal-head">
+      <h2 id="conflict-modal-title">Which data should we keep?</h2>
+    </div>
+    <div class="conflict-body">
+      <p class="field-note">This folder already has a different backup than what's on this device. Pick one — the other gets overwritten.</p>
+      <div class="conflict-options">
+        <button type="button" class="conflict-option" id="conflict-use-folder">
+          <strong>Use the folder's data</strong>
+          <span id="conflict-folder-summary">—</span>
+        </button>
+        <button type="button" class="conflict-option" id="conflict-use-device">
+          <strong>Use this device's data</strong>
+          <span id="conflict-device-summary">—</span>
+        </button>
+      </div>
+      <div class="modal-actions">
+        <div class="modal-actions-right">
+          <button type="button" class="btn btn-ghost" id="conflict-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
