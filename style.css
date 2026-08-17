@@ -391,6 +391,20 @@ input:focus { border-color: var(--accent); }
 .field-note { font-size: .78rem; color: var(--ink-faint); min-height: 1em; }
 .static-value { padding: 10px 13px; background: var(--surface-2); border-radius: var(--radius-sm); font-weight: 600; min-height: 44px; display: flex; align-items: center; }
 
+.metric-note {
+  font-size: .72rem; color: var(--ink-faint); line-height: 1.4;
+  margin: 6px 0 0; font-style: italic;
+}
+.stat-card .metric-note { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
+
+.note-banner {
+  display: flex; gap: 10px; align-items: flex-start;
+  background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  border-radius: var(--radius-md); padding: 12px 16px; margin-bottom: 18px;
+  font-size: .86rem; color: var(--accent-strong); line-height: 1.5;
+}
+.note-banner svg { flex-shrink: 0; margin-top: 2px; opacity: .8; }
+
 .stepper { display: flex; align-items: stretch; border: 1.5px solid var(--border-strong); border-radius: var(--radius-sm); overflow: hidden; }
 .stepper input { border: none; text-align: center; min-height: 44px; -moz-appearance: textfield; }
 .stepper input::-webkit-outer-spin-button, .stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
@@ -495,6 +509,7 @@ input:focus { border-color: var(--accent); }
 .bar-track { height: 12px; background: var(--surface-2); border-radius: 999px; overflow: hidden; }
 .bar-fill { height: 100%; background: var(--accent); border-radius: 999px; }
 .bar-row .amount { font-size: .84rem; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bar-row .amount-pct { font-size: .76rem; font-weight: 600; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
 
 @media (prefers-reduced-motion: reduce) {
   .view.is-active, .toast { animation: none !important; transition: none !important; }

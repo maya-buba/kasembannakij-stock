@@ -80,6 +80,7 @@
           <span class="panel-hint" id="velocity-hint">—</span>
         </div>
         <div id="trend-chart" class="chart-wrap"></div>
+        <p class="metric-note">Bar height = total sale revenue (qty × unit price) per day/month/year, before costs or fees.</p>
       </section>
 
       <div class="panel-grid">
@@ -88,6 +89,7 @@
             <h2>Where we're selling</h2>
           </div>
           <div id="location-chart" class="chart-wrap"></div>
+          <p class="metric-note">Revenue summed per selling location, for the period selected above.</p>
         </section>
 
         <section class="panel">
@@ -95,6 +97,7 @@
             <h2>Retail vs. wholesale</h2>
           </div>
           <div id="mix-chart" class="chart-wrap"></div>
+          <p class="metric-note">Revenue split by each sale's tagged type, for the period selected above.</p>
         </section>
       </div>
 
@@ -112,6 +115,7 @@
             <h2>Best sellers</h2>
           </div>
           <div id="top-sellers" class="mini-table"></div>
+          <p class="metric-note">Ranked by units sold in the period, most first; the amount shown is that book's revenue.</p>
         </section>
 
         <section class="panel">
@@ -120,6 +124,7 @@
             <span class="panel-hint">low stock &amp; running out fast</span>
           </div>
           <div id="reorder-watch" class="mini-table"></div>
+          <p class="metric-note">Stock at or below your Settings threshold, or on pace to sell out within 14 days at its last-30-day rate.</p>
         </section>
       </div>
 
@@ -129,6 +134,7 @@
           <span class="panel-hint">capital sitting still — good candidates for a push</span>
         </div>
         <div id="promo-watch" class="mini-table"></div>
+        <p class="metric-note">Books with stock above your low-stock threshold but under ~0.05 sales/day over the last 60 days, ranked by stock × cost (money tied up).</p>
       </section>
     </section>
 
@@ -331,6 +337,11 @@
     <section class="view" id="view-expenses" data-view="expenses">
       <div class="view-head">
         <h1>Expenses</h1>
+      </div>
+
+      <div class="note-banner">
+        <svg viewBox="0 0 24 24" width="18" height="18"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><line x1="12" y1="11" x2="12" y2="16.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="7.8" r="1.1" fill="currentColor"/></svg>
+        <span>Don't log book purchases here. A book's cost only gets entered once, in <strong>Inventory</strong> — it's already factored into Margin and shows up in the Dashboard's <strong>Sunk cost of stock</strong>. Use Expenses for running the store itself: rent, utilities, staff, packaging, marketing.</span>
       </div>
 
       <section class="panel">

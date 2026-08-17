@@ -283,26 +283,31 @@
         <span class="stat-label">Revenue</span>
         <span class="stat-value">${fmtMoney(revenue)}</span>
         <span class="stat-sub">${units} unit${units === 1 ? "" : "s"} sold${wholesaleRevenue > 0 ? ` · ${fmtMoney(wholesaleRevenue)} wholesale` : ""}${commission > 0 ? ` · ${fmtMoney(commission)} in platform fees` : ""}</span>
+        <span class="metric-note">= Σ (quantity × sale price) across every sale in this period.</span>
       </div>
       <div class="stat-card">
         <span class="stat-label">Margin earned</span>
         <span class="stat-value accent">${fmtMoney(margin)}</span>
         <span class="stat-sub">${fmtNum(marginPct)}% of revenue</span>
+        <span class="metric-note">= revenue − platform commission fees − book cost, summed per sale.</span>
       </div>
       <div class="stat-card">
         <span class="stat-label">Net profit</span>
         <span class="stat-value ${netProfit < 0 ? "" : "accent"}" style="${netProfit < 0 ? "color:var(--critical)" : ""}">${fmtMoneySigned(netProfit)}</span>
         <span class="stat-sub">margin minus ${fmtMoney(totalExpenses)} in expenses</span>
+        <span class="metric-note">= Margin earned − total Expenses logged in this same period.</span>
       </div>
       <div class="stat-card">
         <span class="stat-label">Sunk cost of stock</span>
         <span class="stat-value gold">${fmtMoney(sunk)}</span>
         <span class="stat-sub">tied up in ${activeBooks().reduce((s, b) => s + Math.max(0, b.stock), 0)} unsold copies</span>
+        <span class="metric-note">= Σ (current stock × cost) across active books, right now — not limited to the period above.</span>
       </div>
       <div class="stat-card">
         <span class="stat-label">Sell rate</span>
         <span class="stat-value">${fmtNum(velocity, 2)}<span style="font-size:.9rem;font-weight:600;color:var(--ink-muted)"> /day</span></span>
         <span class="stat-sub">over ${days} day${days === 1 ? "" : "s"}</span>
+        <span class="metric-note">= total units sold ÷ number of days in this period.</span>
       </div>
     `;
 
@@ -435,12 +440,18 @@
       return;
     }
     const max = entries[0][1];
-    wrap.innerHTML = `<div class="bar-chart">${entries.map(([cat, amt]) => `
+    const total = entries.reduce((s, [, amt]) => s + amt, 0);
+    wrap.innerHTML = `<div class="bar-chart">${entries.map(([cat, amt]) => {
+      const shareOfTotal = total > 0 ? (amt / total) * 100 : 0;
+      const intensity = clamp(shareOfTotal, 12, 100);
+      return `
       <div class="bar-row">
         <span class="label">${escapeHtml(cat)}</span>
-        <span class="bar-track"><span class="bar-fill" style="width:${clamp((amt / max) * 100, 4, 100)}%; background:var(--critical)"></span></span>
-        <span class="amount">${fmtMoney(amt)}</span>
-      </div>`).join("")}</div>`;
+        <span class="bar-track"><span class="bar-fill" style="width:${clamp((amt / max) * 100, 4, 100)}%; background:color-mix(in srgb, var(--critical) ${intensity.toFixed(0)}%, var(--surface-3))"></span></span>
+        <span class="amount">${fmtMoney(amt)} <span class="amount-pct">${fmtNum(shareOfTotal)}%</span></span>
+      </div>`;
+    }).join("")}</div>
+    <p class="metric-note">Bar length = amount vs. the largest category; bar color intensity = that category's share of total expenses shown.</p>`;
   }
 
   function renderTopSellers(periodSales) {
