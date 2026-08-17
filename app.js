@@ -107,6 +107,8 @@
   const fmtMoneySigned = (n) => (n < 0 ? "-" : "") + fmtMoney(Math.abs(n));
   const fmtNum = (n, d = 1) => Number(n).toLocaleString("en-US", { maximumFractionDigits: d });
   const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
+  const CHART_PALETTE = ["var(--accent)", "var(--gold)", "var(--chart-blue)", "var(--chart-terracotta)", "var(--chart-purple)", "var(--chart-rose)"];
+  const chartColor = (i) => CHART_PALETTE[i % CHART_PALETTE.length];
   const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
   /* RFC4180-ish CSV parser: handles quoted fields, embedded commas/newlines, "" escapes */
@@ -377,14 +379,15 @@
     const wrap = document.getElementById("mix-chart");
     const retail = periodSales.filter((s) => s.saleType !== "wholesale").reduce((s, x) => s + saleRevenue(x), 0);
     const wholesale = periodSales.filter((s) => s.saleType === "wholesale").reduce((s, x) => s + saleRevenue(x), 0);
-    if (retail === 0 && wholesale === 0) {
+    const total = retail + wholesale;
+    if (total === 0) {
       wrap.innerHTML = `<p class="empty-row">No sales recorded in this window yet.</p>`;
       return;
     }
-    const max = Math.max(retail, wholesale, 1);
+    const widthOf = (v) => clamp((v / total) * 100, v > 0 ? 2 : 0, 100);
     wrap.innerHTML = `<div class="bar-chart">
-      <div class="bar-row"><span class="label">Retail</span><span class="bar-track"><span class="bar-fill" style="width:${clamp((retail / max) * 100, retail > 0 ? 4 : 0, 100)}%"></span></span><span class="amount">${fmtMoney(retail)}</span></div>
-      <div class="bar-row"><span class="label">Wholesale</span><span class="bar-track"><span class="bar-fill" style="width:${clamp((wholesale / max) * 100, wholesale > 0 ? 4 : 0, 100)}%; background:var(--gold)"></span></span><span class="amount">${fmtMoney(wholesale)}</span></div>
+      <div class="bar-row"><span class="label">Retail</span><span class="bar-track"><span class="bar-fill" style="width:${widthOf(retail)}%; background:${chartColor(0)}"></span></span><span class="amount">${fmtMoney(retail)} <span class="amount-pct">${fmtNum((retail / total) * 100)}%</span></span></div>
+      <div class="bar-row"><span class="label">Wholesale</span><span class="bar-track"><span class="bar-fill" style="width:${widthOf(wholesale)}%; background:${chartColor(1)}"></span></span><span class="amount">${fmtMoney(wholesale)} <span class="amount-pct">${fmtNum((wholesale / total) * 100)}%</span></span></div>
     </div>`;
   }
 
@@ -419,12 +422,12 @@
       wrap.innerHTML = `<p class="empty-row">No sales recorded in this window yet.</p>`;
       return;
     }
-    const max = entries[0][1];
-    wrap.innerHTML = `<div class="bar-chart">${entries.map(([loc, rev]) => `
+    const total = entries.reduce((s, [, rev]) => s + rev, 0);
+    wrap.innerHTML = `<div class="bar-chart">${entries.map(([loc, rev], i) => `
       <div class="bar-row">
         <span class="label">${escapeHtml(loc)}</span>
-        <span class="bar-track"><span class="bar-fill" style="width:${clamp((rev / max) * 100, 4, 100)}%"></span></span>
-        <span class="amount">${fmtMoney(rev)}</span>
+        <span class="bar-track"><span class="bar-fill" style="width:${clamp((rev / total) * 100, 2, 100)}%; background:${chartColor(i)}"></span></span>
+        <span class="amount">${fmtMoney(rev)} <span class="amount-pct">${fmtNum((rev / total) * 100)}%</span></span>
       </div>`).join("")}</div>`;
   }
 
@@ -439,19 +442,13 @@
       wrap.innerHTML = `<p class="empty-row">No expenses recorded in this window yet.</p>`;
       return;
     }
-    const max = entries[0][1];
     const total = entries.reduce((s, [, amt]) => s + amt, 0);
-    wrap.innerHTML = `<div class="bar-chart">${entries.map(([cat, amt]) => {
-      const shareOfTotal = total > 0 ? (amt / total) * 100 : 0;
-      const intensity = clamp(shareOfTotal, 12, 100);
-      return `
+    wrap.innerHTML = `<div class="bar-chart">${entries.map(([cat, amt], i) => `
       <div class="bar-row">
         <span class="label">${escapeHtml(cat)}</span>
-        <span class="bar-track"><span class="bar-fill" style="width:${clamp((amt / max) * 100, 4, 100)}%; background:color-mix(in srgb, var(--critical) ${intensity.toFixed(0)}%, var(--surface-3))"></span></span>
-        <span class="amount">${fmtMoney(amt)} <span class="amount-pct">${fmtNum(shareOfTotal)}%</span></span>
-      </div>`;
-    }).join("")}</div>
-    <p class="metric-note">Bar length = amount vs. the largest category; bar color intensity = that category's share of total expenses shown.</p>`;
+        <span class="bar-track"><span class="bar-fill" style="width:${clamp((amt / total) * 100, 2, 100)}%; background:${chartColor(i)}"></span></span>
+        <span class="amount">${fmtMoney(amt)} <span class="amount-pct">${fmtNum((amt / total) * 100)}%</span></span>
+      </div>`).join("")}</div>`;
   }
 
   function renderTopSellers(periodSales) {
