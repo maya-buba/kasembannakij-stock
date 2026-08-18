@@ -227,7 +227,15 @@ input:focus { border-color: var(--accent); }
 .icon-btn[data-action="remove-loc"]:hover { background: var(--critical-soft); color: var(--critical); }
 
 /* ---------------- Chips / period picker ---------------- */
+.period-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 18px; }
 .period-picker { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.period-line { font-size: .78rem; color: var(--ink-muted); font-weight: 600; margin: 6px 0 0; }
+.stat-card .period-line { margin-top: 8px; padding-top: 0; border-top: none; }
+
+.chart-legend { display: flex; gap: 16px; margin-bottom: 10px; }
+.legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: .8rem; font-weight: 600; color: var(--ink-muted); }
+.legend-swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
 .chip {
   border: 1.5px solid var(--border-strong);
   background: var(--surface);

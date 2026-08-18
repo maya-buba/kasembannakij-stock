@@ -185,13 +185,42 @@
   tabs.forEach((t) => t.addEventListener("click", () => setView(t.dataset.view)));
 
   /* ---------------- date range ---------------- */
-  let currentPeriod = "30";
+  let currentPeriod = "today";
+  let customFrom = "";
+  let customTo = "";
   const periodPicker = document.getElementById("period-picker");
+  const dashboardCustomRange = document.getElementById("dashboard-custom-range");
+
+  function activateCustomRange() {
+    if (!customFrom && !customTo) {
+      const today = todayISO();
+      customFrom = today;
+      customTo = today;
+      document.getElementById("dashboard-from").value = today;
+      document.getElementById("dashboard-to").value = today;
+    }
+    currentPeriod = "custom";
+    periodPicker.querySelectorAll(".chip").forEach((c) => c.classList.toggle("is-active", c.dataset.period === "custom"));
+    dashboardCustomRange.hidden = false;
+  }
+
   periodPicker.addEventListener("click", (e) => {
     const btn = e.target.closest(".chip");
     if (!btn) return;
+    if (btn.dataset.period === "custom") { activateCustomRange(); renderDashboard(); return; }
     currentPeriod = btn.dataset.period;
     periodPicker.querySelectorAll(".chip").forEach((c) => c.classList.toggle("is-active", c === btn));
+    dashboardCustomRange.hidden = true;
+    renderDashboard();
+  });
+  document.getElementById("dashboard-from").addEventListener("change", (e) => {
+    customFrom = e.target.value;
+    activateCustomRange();
+    renderDashboard();
+  });
+  document.getElementById("dashboard-to").addEventListener("change", (e) => {
+    customTo = e.target.value;
+    activateCustomRange();
     renderDashboard();
   });
 
@@ -206,19 +235,25 @@
   });
 
   function periodRange(period) {
-    const end = new Date();
-    end.setHours(23, 59, 59, 999);
-    let start;
-    if (period === "all") {
-      start = new Date(0);
-    } else if (period === "month") {
-      start = new Date(end.getFullYear(), end.getMonth(), 1);
-    } else {
-      start = new Date(end);
-      start.setDate(start.getDate() - (Number(period) - 1));
-      start.setHours(0, 0, 0, 0);
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    if (period === "month") return { start: new Date(now.getFullYear(), now.getMonth(), 1), end: endOfToday };
+    if (period === "year") return { start: new Date(now.getFullYear(), 0, 1), end: endOfToday };
+    if (period === "custom") {
+      return {
+        start: customFrom ? new Date(customFrom + "T00:00:00") : startOfToday,
+        end: customTo ? new Date(customTo + "T23:59:59.999") : endOfToday,
+      };
     }
-    return { start, end };
+    return { start: startOfToday, end: endOfToday };
+  }
+  function periodLabel(period, start, end) {
+    const fmtFull = (d) => d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    if (period === "month") return `This month (${start.toLocaleDateString("en-US", { month: "long", year: "numeric" })})`;
+    if (period === "year") return `This year (${start.getFullYear()})`;
+    if (period === "custom") return start.toDateString() === end.toDateString() ? fmtFull(start) : `${fmtFull(start)} – ${fmtFull(end)}`;
+    return `Today (${fmtFull(start)})`;
   }
   function salesInRange(start, end) {
     return sales.filter((s) => {
@@ -232,13 +267,10 @@
       return d >= start && d <= end;
     });
   }
-  function periodDays(period, start, end) {
-    if (period === "all") {
-      if (sales.length === 0) return 1;
-      const earliest = sales.reduce((min, s) => Math.min(min, new Date(s.date).getTime()), Date.now());
-      return Math.max(1, Math.ceil((Date.now() - earliest) / 86400000));
-    }
-    return Math.max(1, Math.round((end - start) / 86400000) + 1);
+  function periodDays(start, end) {
+    const startMid = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+    const endMid = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+    return Math.max(1, Math.round((endMid - startMid) / 86400000) + 1);
   }
 
   /* ---------------- sale/book math ---------------- */
@@ -266,7 +298,8 @@
     const { start, end } = periodRange(currentPeriod);
     const periodSales = salesInRange(start, end);
     const periodExpenses = expensesInRange(start, end);
-    const days = periodDays(currentPeriod, start, end);
+    const days = periodDays(start, end);
+    const periodText = periodLabel(currentPeriod, start, end);
 
     const revenue = periodSales.reduce((s, x) => s + saleRevenue(x), 0);
     const commission = periodSales.reduce((s, x) => s + saleCommission(x), 0);
@@ -285,36 +318,53 @@
         <span class="stat-label">Revenue</span>
         <span class="stat-value">${fmtMoney(revenue)}</span>
         <span class="stat-sub">${units} unit${units === 1 ? "" : "s"} sold${wholesaleRevenue > 0 ? ` · ${fmtMoney(wholesaleRevenue)} wholesale` : ""}${commission > 0 ? ` · ${fmtMoney(commission)} in platform fees` : ""}</span>
+        <span class="period-line">${escapeHtml(periodText)}</span>
         <span class="metric-note">= Σ (quantity × sale price) across every sale in this period.</span>
       </div>
       <div class="stat-card">
         <span class="stat-label">Margin earned</span>
         <span class="stat-value accent">${fmtMoney(margin)}</span>
         <span class="stat-sub">${fmtNum(marginPct)}% of revenue</span>
+        <span class="period-line">${escapeHtml(periodText)}</span>
         <span class="metric-note">= revenue − platform commission fees − book cost, summed per sale.</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Expenses</span>
+        <span class="stat-value" style="color:var(--critical)">${fmtMoney(totalExpenses)}</span>
+        <span class="stat-sub">${periodExpenses.length} entr${periodExpenses.length === 1 ? "y" : "ies"} logged</span>
+        <span class="period-line">${escapeHtml(periodText)}</span>
+        <span class="metric-note">= Σ amounts logged in Expenses within this period.</span>
       </div>
       <div class="stat-card">
         <span class="stat-label">Net profit</span>
         <span class="stat-value ${netProfit < 0 ? "" : "accent"}" style="${netProfit < 0 ? "color:var(--critical)" : ""}">${fmtMoneySigned(netProfit)}</span>
         <span class="stat-sub">margin minus ${fmtMoney(totalExpenses)} in expenses</span>
+        <span class="period-line">${escapeHtml(periodText)}</span>
         <span class="metric-note">= Margin earned − total Expenses logged in this same period.</span>
       </div>
       <div class="stat-card">
         <span class="stat-label">Sunk cost of stock</span>
         <span class="stat-value gold">${fmtMoney(sunk)}</span>
         <span class="stat-sub">tied up in ${activeBooks().reduce((s, b) => s + Math.max(0, b.stock), 0)} unsold copies</span>
-        <span class="metric-note">= Σ (current stock × cost) across active books, right now — not limited to the period above.</span>
+        <span class="period-line">Right now — not affected by the period above.</span>
+        <span class="metric-note">= Σ (current stock × cost) across active books, right now.</span>
       </div>
       <div class="stat-card">
         <span class="stat-label">Sell rate</span>
         <span class="stat-value">${fmtNum(velocity, 2)}<span style="font-size:.9rem;font-weight:600;color:var(--ink-muted)"> /day</span></span>
         <span class="stat-sub">over ${days} day${days === 1 ? "" : "s"}</span>
+        <span class="period-line">${escapeHtml(periodText)}</span>
         <span class="metric-note">= total units sold ÷ number of days in this period.</span>
       </div>
     `;
 
     document.getElementById("velocity-hint").textContent =
       periodSales.length ? `${units} units · ${fmtMoney(revenue)} revenue` : "no sales in range";
+
+    ["income-period", "location-period", "mix-period", "expense-chart-period", "topsellers-period"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = periodText;
+    });
 
     renderTrendChart(start, end);
     renderLocationChart(periodSales);
@@ -336,7 +386,8 @@
         d.setDate(d.getDate() - i);
         const key = d.toISOString().slice(0, 10);
         const revenue = sales.filter((s) => s.date === key).reduce((sum, s) => sum + saleRevenue(s), 0);
-        buckets.push({ key, revenue, label: `${d.getMonth() + 1}/${d.getDate()}` });
+        const expense = expenses.filter((x) => x.date === key).reduce((sum, x) => sum + x.amount, 0);
+        buckets.push({ key, revenue, expense, label: `${d.getMonth() + 1}/${d.getDate()}` });
       }
     } else if (trendGranularity === "month") {
       const now = new Date();
@@ -344,35 +395,50 @@
         const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
         const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
         const revenue = sales.filter((s) => s.date.slice(0, 7) === key).reduce((sum, s) => sum + saleRevenue(s), 0);
-        buckets.push({ key, revenue, label: d.toLocaleDateString("en-US", { month: "short" }) });
+        const expense = expenses.filter((x) => x.date.slice(0, 7) === key).reduce((sum, x) => sum + x.amount, 0);
+        buckets.push({ key, revenue, expense, label: `${d.toLocaleDateString("en-US", { month: "short" })} '${String(d.getFullYear()).slice(2)}` });
       }
     } else {
-      const years = [...new Set(sales.map((s) => s.date.slice(0, 4)))].sort();
+      const years = [...new Set([...sales.map((s) => s.date.slice(0, 4)), ...expenses.map((x) => x.date.slice(0, 4))])].sort();
       const currentYear = String(new Date().getFullYear());
       if (!years.includes(currentYear)) years.push(currentYear);
       buckets = years.map((y) => ({
         key: y, label: y,
         revenue: sales.filter((s) => s.date.slice(0, 4) === y).reduce((sum, s) => sum + saleRevenue(s), 0),
+        expense: expenses.filter((x) => x.date.slice(0, 4) === y).reduce((sum, x) => sum + x.amount, 0),
       }));
     }
 
-    const max = Math.max(1, ...buckets.map((b) => b.revenue));
-    const w = Math.max(360, buckets.length * (trendGranularity === "day" ? 16 : 56));
-    const h = 130;
-    const barW = (w / buckets.length) * (trendGranularity === "day" ? 0.62 : 0.5);
-    const showLabel = trendGranularity !== "day" || buckets.length <= 31;
-    const bars = buckets.map((b, i) => {
-      const cellW = w / buckets.length;
-      const x = cellW * i + (cellW - barW) / 2;
-      const bh = (b.revenue / max) * (h - 34);
-      const y = h - bh - 28;
-      const color = b.revenue > 0 ? "var(--accent)" : "var(--border)";
-      const label = trendGranularity === "day" ? "" : `<text x="${(x + barW / 2).toFixed(1)}" y="${h - 10}" text-anchor="middle" font-size="11" fill="var(--ink-muted)">${b.label}</text>`;
-      return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(2, bh).toFixed(1)}" rx="3" fill="${color}"><title>${b.key}: ${fmtMoney(b.revenue)}</title></rect>${label}`;
+    const max = Math.max(1, ...buckets.map((b) => Math.max(b.revenue, b.expense)));
+    const showValueLabels = trendGranularity !== "day" || buckets.length <= 14;
+    const w = Math.max(360, buckets.length * (trendGranularity === "day" ? 22 : 64));
+    const h = showValueLabels ? 160 : 130;
+    const chartBottom = h - 28;
+    const maxBarH = chartBottom - (showValueLabels ? 28 : 12);
+    const cellW = w / buckets.length;
+    const barW = cellW * (trendGranularity === "day" ? 0.3 : 0.26);
+    const gap = 3;
+    const showAxisLabel = trendGranularity !== "day" || buckets.length <= 31;
+
+    const barsHtml = buckets.map((b, i) => {
+      const cellX = cellW * i;
+      const revX = cellX + cellW / 2 - barW - gap / 2;
+      const expX = cellX + cellW / 2 + gap / 2;
+      const revH = (b.revenue / max) * maxBarH;
+      const expH = (b.expense / max) * maxBarH;
+      const revY = chartBottom - revH;
+      const expY = chartBottom - expH;
+      const revColor = b.revenue > 0 ? "var(--accent)" : "var(--border)";
+      const expColor = b.expense > 0 ? "var(--critical)" : "var(--border)";
+      const axisLabel = showAxisLabel ? `<text x="${(cellX + cellW / 2).toFixed(1)}" y="${h - 10}" text-anchor="middle" font-size="11" fill="var(--ink-muted)">${b.label}</text>` : "";
+      const revLabel = showValueLabels && b.revenue > 0 ? `<text x="${(revX + barW / 2).toFixed(1)}" y="${(revY - 4).toFixed(1)}" text-anchor="middle" font-size="10" fill="var(--accent-strong)" font-weight="700">${fmtMoney(b.revenue)}</text>` : "";
+      const expLabel = showValueLabels && b.expense > 0 ? `<text x="${(expX + barW / 2).toFixed(1)}" y="${(expY - 4).toFixed(1)}" text-anchor="middle" font-size="10" fill="var(--critical)" font-weight="700">${fmtMoney(b.expense)}</text>` : "";
+      return `<rect x="${revX.toFixed(1)}" y="${revY.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(1.5, revH).toFixed(1)}" rx="2.5" fill="${revColor}"><title>${b.key} revenue: ${fmtMoney(b.revenue)}</title></rect>${revLabel}<rect x="${expX.toFixed(1)}" y="${expY.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(1.5, expH).toFixed(1)}" rx="2.5" fill="${expColor}"><title>${b.key} expenses: ${fmtMoney(b.expense)}</title></rect>${expLabel}${axisLabel}`;
     }).join("");
-    wrap.innerHTML = buckets.every((b) => b.revenue === 0)
-      ? `<p class="empty-row">No sales recorded in this window yet.</p>`
-      : `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="none" style="min-width:${w}px">${bars}<line x1="0" y1="${h - 28}" x2="${w}" y2="${h - 28}" stroke="var(--border)" stroke-width="1"/></svg>`;
+
+    wrap.innerHTML = buckets.every((b) => b.revenue === 0 && b.expense === 0)
+      ? `<p class="empty-row">No sales or expenses recorded in this window yet.</p>`
+      : `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="none" style="min-width:${w}px">${barsHtml}<line x1="0" y1="${chartBottom}" x2="${w}" y2="${chartBottom}" stroke="var(--border)" stroke-width="1"/></svg>`;
   }
 
   function renderMixChart(periodSales) {
